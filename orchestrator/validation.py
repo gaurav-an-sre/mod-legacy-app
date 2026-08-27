@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from typing import Any
 
 
 class ContractError(ValueError):
     """A phase reply did not satisfy the contract printed in its prompt."""
+
+
+BRANCH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 
 def strip_json_fence(text: str) -> str:
@@ -75,11 +79,24 @@ def _slice_matches(payload: dict[str, Any], slice_name: str) -> None:
         raise ContractError(f"slice must be {slice_name}, got {payload.get('slice')!r}")
 
 
+def _branch(payload: dict[str, Any]) -> str:
+    branch = _string(payload, "branch")
+    if (
+        len(branch) > 200
+        or not BRANCH_PATTERN.fullmatch(branch)
+        or ".." in branch
+        or "@{" in branch
+        or branch.endswith(("/", ".lock"))
+    ):
+        raise ContractError("branch is not a valid branch name")
+    return branch
+
+
 def validate_extract(payload: Any, slice_name: str) -> dict[str, Any]:
     data = _mapping(payload)
     _slice_matches(data, slice_name)
     _string(data, "service_name")
-    _string(data, "branch")
+    _branch(data)
     container_port = _integer(data, "container_port")
     if not 1 <= container_port <= 65535:
         raise ContractError("container_port must be between 1 and 65535")
@@ -93,7 +110,7 @@ def validate_extract(payload: Any, slice_name: str) -> dict[str, Any]:
 def validate_parity_fix(payload: Any, slice_name: str) -> dict[str, Any]:
     data = _mapping(payload)
     _slice_matches(data, slice_name)
-    _string(data, "branch")
+    _branch(data)
     _rate(data, "parity_match_rate")
     _object_list(data, "fixed", ("route", "cause", "fix"))
     _object_list(data, "benign", ("route", "why"))

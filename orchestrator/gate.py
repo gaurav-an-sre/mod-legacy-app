@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -17,6 +18,20 @@ Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 class MeasurementFailure(RuntimeError):
     """The agent branch could not be materialized or measured."""
+
+
+BRANCH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+
+def _validate_branch(branch: str) -> None:
+    if (
+        len(branch) > 200
+        or not BRANCH_PATTERN.fullmatch(branch)
+        or ".." in branch
+        or "@{" in branch
+        or branch.endswith(("/", ".lock"))
+    ):
+        raise MeasurementFailure("invalid branch name")
 
 
 @dataclass
@@ -40,9 +55,18 @@ class ParityGate:
         )
 
     def _verify_worktree(self, slice_name: str, branch: str) -> Path:
+        _validate_branch(branch)
         verify_dir = self.repo / ".verify" / slice_name
         verify_dir.parent.mkdir(parents=True, exist_ok=True)
-        fetched = self._run(["git", "fetch", "origin", branch], cwd=self.repo)
+        fetched = self._run(
+            [
+                "git",
+                "fetch",
+                "origin",
+                f"refs/heads/{branch}:refs/remotes/origin/{branch}",
+            ],
+            cwd=self.repo,
+        )
         if fetched.returncode:
             raise MeasurementFailure(
                 f"git fetch failed for {branch}: {fetched.stderr.strip() or fetched.stdout.strip()}"
@@ -78,7 +102,18 @@ class ParityGate:
         try:
             verify_dir = self._verify_worktree(slice_name, branch)
             started = self._run(
-                ["docker", "compose", "-p", project, "up", "-d", "--build"],
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project,
+                    "up",
+                    "-d",
+                    "--build",
+                    "db",
+                    "legacy",
+                    service_name,
+                ],
                 cwd=verify_dir,
             )
             if started.returncode:

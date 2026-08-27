@@ -108,6 +108,16 @@ def test_contracts_are_strict() -> None:
     assert parse_phase_reply("extract", "catalog", extract_json())["service_name"] == "catalog"
 
 
+@pytest.mark.parametrize(
+    "branch", ["--upload-pack=evil", "feature/../main", "feature@{1}", "feature/"]
+)
+def test_contract_rejects_invalid_branch(branch: str) -> None:
+    payload = json.loads(extract_json())
+    payload["branch"] = branch
+    with pytest.raises(ContractError, match="valid branch"):
+        parse_phase_reply("extract", "catalog", json.dumps(payload))
+
+
 def test_restart_resumes_existing_agent(tmp_path: Path) -> None:
     agent = FakeAgent("agent-1", [cutover_json(), notion_json()])
     fleet = FakeFleet(agent)
@@ -233,9 +243,25 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         container_port=8001,
     )
     commands = [args for args, _cwd in calls]
-    assert commands[0] == ["git", "fetch", "origin", "devin/catalog"]
+    assert commands[0] == [
+        "git",
+        "fetch",
+        "origin",
+        "refs/heads/devin/catalog:refs/remotes/origin/devin/catalog",
+    ]
     assert commands[1][:3] == ["git", "worktree", "add"]
-    assert commands[2] == ["docker", "compose", "-p", "verify-catalog", "up", "-d", "--build"]
+    assert commands[2] == [
+        "docker",
+        "compose",
+        "-p",
+        "verify-catalog",
+        "up",
+        "-d",
+        "--build",
+        "db",
+        "legacy",
+        "catalog",
+    ]
     assert commands[3][0:7] == [
         "docker",
         "compose",
@@ -266,6 +292,25 @@ def test_parity_gate_failed_measurement_returns_zero_rate(tmp_path: Path) -> Non
     )
     assert gate.rate(report) == 0.0
     assert "measurement_error" in report
+
+
+def test_parity_gate_rejects_bad_branch_without_invoking_git(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def runner(args: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    gate = ParityGate(tmp_path, runner=runner)
+    report = gate.measure(
+        "catalog",
+        branch="--upload-pack=evil",
+        service_name="catalog",
+        container_port=8001,
+    )
+    assert gate.rate(report) == 0.0
+    assert "invalid branch name" in report["measurement_error"]
+    assert calls == []
 
 
 def test_happy_path_persists_agent_metadata_and_streams(tmp_path: Path) -> None:
