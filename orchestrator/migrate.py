@@ -236,19 +236,18 @@ class Migration:
         with self._lock:
             self.state.save(self.state_path)
             if write_notion:
-                st.notion_page_id = (
-                    self.notion_writer.record(
-                        st.name,
-                        {
-                            "phase": st.phase,
-                            "status": st.status,
-                            "parity_rate": st.parity_rate,
-                            "weight": slice_weight(self.repo, st.name),
-                        },
-                        st.notion_page_id,
-                    )
-                    or st.notion_page_id
-                )
+                summary = {
+                    "phase": st.phase,
+                    "status": st.status,
+                    "parity_rate": st.parity_rate,
+                    "weight": slice_weight(self.repo, st.name),
+                }
+                try:
+                    page_id = self.notion_writer.record(st.name, summary, st.notion_page_id)
+                except Exception as exc:
+                    print(f"[{st.name}] notion status update failed: {exc}", flush=True)
+                else:
+                    st.notion_page_id = page_id or st.notion_page_id
             self.state.save(self.state_path)
 
 

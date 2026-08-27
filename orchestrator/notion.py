@@ -51,21 +51,18 @@ class ApiStatusWriter:
             json={
                 "parent": {"page_id": self.parent_page_id},
                 "properties": {
-                    "title": [
-                        {
-                            "type": "title",
-                            "title": [
-                                {
-                                    "type": "text",
-                                    "text": {"content": f"{slice_name} migration status"},
-                                }
-                            ],
-                        }
-                    ]
+                    "title": {
+                        "title": [
+                            {
+                                "type": "text",
+                                "text": {"content": f"{slice_name} migration status"},
+                            }
+                        ]
+                    }
                 },
             },
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         return str(response.json()["id"])
 
     def record(self, slice_name: str, summary: dict[str, Any], page_id: str | None) -> str | None:
@@ -90,8 +87,17 @@ class ApiStatusWriter:
                 ]
             },
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         return target
+
+
+def _raise_for_status(response: Any) -> None:
+    """Surface Notion's validation message; the bare status line hides the cause."""
+    if response.status_code < 400:
+        return
+    raise RuntimeError(
+        f"notion {response.request.method} {response.request.url} -> {response.text}"
+    )
 
 
 def build_status_writer(mode: str, token: str | None, parent_page_id: str | None) -> StatusWriter:
