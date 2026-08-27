@@ -1,0 +1,40 @@
+catalog:
+  - method: GET
+    path: /api/catalog/products
+    query: {q: "", page: 1, per_page: 20}
+  - method: GET
+    path: /api/catalog/products
+    query: {q: "mug", page: 1, per_page: 20}
+  - method: GET
+    path: /api/catalog/products
+    query: {q: "missing", page: 1, per_page: 20}
+  - method: GET
+    path: /api/catalog/product
+    query: {id: 1}
+  - method: GET
+    path: /api/catalog/product
+    query: {id: 999}
+  - method: GET
+    path: /api/catalog/product
+    query: {}
+orders:
+  - method: GET
+    path: /api/orders/cart
+    query: {}
+  - method: POST
+    path: /api/orders/checkout
+    query: {}
+    body: {product_id: 1, quantity: 2}
+users:
+  - method: POST
+    path: /api/users/login
+    query: {}
+    body: {username: alice, password: demo}
+  - method: POST
+    path: /api/users/login
+    query: {}
+    body: {username: nobody, password: wrong}
+reports:
+  - method: GET
+    path: /api/reports/top-products
+    query: {}

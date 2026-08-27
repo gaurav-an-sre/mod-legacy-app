@@ -1,0 +1,1 @@
+"""Strangler façade package."""

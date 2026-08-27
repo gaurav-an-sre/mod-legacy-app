@@ -1,0 +1,8 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "install": "python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'",
+  "start": "sudo service docker start"
+}

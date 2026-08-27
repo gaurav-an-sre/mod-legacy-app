@@ -1,0 +1,67 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: legacy_shop
+      MYSQL_USER: legacy
+      MYSQL_PASSWORD: legacy
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  legacy:
+    build: ./legacy
+    environment:
+      DB_HOST: db
+      DB_NAME: legacy_shop
+      DB_USER: legacy
+      DB_PASSWORD: legacy
+    depends_on:
+      db:
+        condition: service_healthy
+
+  fake-candidate:
+    build: ./tests/fixtures/fake_candidate
+    environment:
+      FAKE_DIVERGE: "${FAKE_DIVERGE:-1}"
+
+  console:
+    build:
+      context: .
+      dockerfile: console/Dockerfile
+    volumes:
+      - .:/workspace
+
+  strangler:
+    image: nginx:1.27-alpine
+    depends_on:
+      - legacy
+      - fake-candidate
+      - console
+    ports:
+      - "8080:80"
+    volumes:
+      - ./strangler/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./strangler/logs:/var/log/nginx
+
+  parity:
+    build:
+      context: .
+      dockerfile: console/Dockerfile
+    profiles: ["tools"]
+    environment:
+      LEGACY_URL: http://legacy
+      CANDIDATE_URL: http://fake-candidate:8000
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+
+volumes:
+  db_data:

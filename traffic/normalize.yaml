@@ -1,0 +1,9 @@
+# Only genuinely volatile fields belong here. Product ids are load-bearing
+# behaviour for the catalog slice, so they are compared, not ignored.
+ignore_json_keys:
+  - order_id
+  - created_at
+  - timestamp
+ignore_headers:
+  - set-cookie
+  - date
