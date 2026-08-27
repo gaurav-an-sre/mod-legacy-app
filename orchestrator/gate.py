@@ -195,6 +195,8 @@ class ParityGate:
                     "tools",
                     "run",
                     "--rm",
+                    "--user",
+                    f"{os.getuid()}:{os.getgid()}",
                     "-e",
                     f"CANDIDATE_URL=http://{service_name}:{container_port}",
                     "parity",
