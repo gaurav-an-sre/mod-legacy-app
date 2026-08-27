@@ -52,6 +52,26 @@ def test_non_idempotent_slice_is_not_mirrored(tmp_path: Path) -> None:
     assert "location = /_shadow_orders" not in rendered
 
 
+def test_incomplete_candidate_renders_as_legacy(tmp_path: Path) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  broken:\n"
+        "    weight: 100\n"
+        "    mirror: true\n"
+        "    upstream: candidate_x\n"
+        "    candidate: null\n"
+        "    routes: [/api/broken]\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "nginx.conf"
+    render_routes(routes, output)
+    rendered = output.read_text(encoding="utf-8")
+    assert "candidate_x_upstream" not in rendered
+    assert "location = /api/broken" in rendered
+    assert "proxy_pass http://legacy_upstream;" in rendered
+
+
 def test_error_rates_ignore_samples_outside_soak_window(tmp_path: Path) -> None:
     log = tmp_path / "access.log"
     recent = datetime.now(UTC).replace(microsecond=0).isoformat()
@@ -124,6 +144,26 @@ def test_promote_rejects_slice_without_upstream_before_parity(tmp_path: Path) ->
             parity_path=tmp_path / "missing.json",
             repo=tmp_path,
         )
+
+
+def test_promote_rejects_slice_without_candidate(tmp_path: Path) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  broken:\n"
+        "    weight: 0\n"
+        "    upstream: candidate_x\n"
+        "    candidate: null\n"
+        "    routes: [/api/broken]\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "broken.json"
+    report.write_text(
+        json.dumps({"candidate_url": "http://candidate_x:8000", "match_rate": 1.0}),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="configured candidate missing"):
+        promote("broken", routes_path=routes, parity_path=report, repo=tmp_path)
 
 
 def test_promote_rejects_parity_from_wrong_candidate(tmp_path: Path) -> None:
@@ -232,6 +272,27 @@ def test_console_reports_legacy_only_without_upstream(
         "    weight: 100\n"
         "    upstream: null\n"
         "    routes: [/api/reports/top-products]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    rendered = console_main.migration_console()
+    assert "Candidate: <code>legacy only</code>" in rendered
+    assert "<b>0%</b> candidate traffic" in rendered
+    assert 'style="width:100%"' not in rendered
+
+
+def test_console_reports_legacy_only_without_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "strangler").mkdir()
+    (tmp_path / "parity").mkdir()
+    (tmp_path / "strangler" / "routes.yaml").write_text(
+        "slices:\n"
+        "  broken:\n"
+        "    weight: 100\n"
+        "    upstream: candidate_x\n"
+        "    candidate: null\n"
+        "    routes: [/api/broken]\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(console_main, "ROOT", tmp_path)
