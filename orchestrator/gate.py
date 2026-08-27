@@ -37,7 +37,7 @@ def _validate_branch(branch: str) -> None:
 
 @dataclass
 class ParityGate:
-    """Builds the agent branch in isolation and runs the existing parity harness."""
+    """Builds the agent branch in isolation and runs the trusted parity harness."""
 
     repo: Path
     threshold: float = PARITY_THRESHOLD
@@ -86,6 +86,11 @@ class ParityGate:
                 cwd=verify_dir,
             )
         else:
+            self._run(
+                ["git", "worktree", "remove", "--force", str(verify_dir)],
+                cwd=self.repo,
+            )
+            self._run(["git", "worktree", "prune"], cwd=self.repo)
             refreshed = self._run(
                 ["git", "worktree", "add", "--detach", str(verify_dir), ref],
                 cwd=self.repo,
@@ -95,6 +100,15 @@ class ParityGate:
                 f"worktree checkout failed for {branch}: "
                 f"{refreshed.stderr.strip() or refreshed.stdout.strip()}"
             )
+        # Keep the measurement harness and traffic fixtures trusted; only the
+        # candidate service code comes from the agent-authored worktree.
+        (verify_dir / "tools").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.repo / "tools" / "parity.py", verify_dir / "tools" / "parity.py")
+        shutil.copyfile(
+            self.repo / "tools" / "wait_for_legacy.py",
+            verify_dir / "tools" / "wait_for_legacy.py",
+        )
+        shutil.copytree(self.repo / "traffic", verify_dir / "traffic", dirs_exist_ok=True)
         return verify_dir
 
     def measure(
@@ -118,6 +132,7 @@ class ParityGate:
                     "up",
                     "-d",
                     "--build",
+                    "--wait",
                     "db",
                     "legacy",
                     service_name,
@@ -127,6 +142,40 @@ class ParityGate:
             if started.returncode:
                 raise MeasurementFailure(
                     f"compose build failed: {started.stderr.strip() or started.stdout.strip()}"
+                )
+            environment = {
+                **os.environ,
+                "HOST_UID": str(os.getuid()),
+                "HOST_GID": str(os.getgid()),
+            }
+            ready = self._run(
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project,
+                    "--profile",
+                    "tools",
+                    "run",
+                    "--rm",
+                    "--user",
+                    f"{os.getuid()}:{os.getgid()}",
+                    "-e",
+                    "LEGACY_URL=http://legacy",
+                    "parity",
+                    "python",
+                    "tools/wait_for_legacy.py",
+                    "--slice",
+                    slice_name,
+                    "--timeout",
+                    "120",
+                ],
+                cwd=verify_dir,
+                env=environment,
+            )
+            if ready.returncode:
+                raise MeasurementFailure(
+                    f"legacy readiness failed: {ready.stderr.strip() or ready.stdout.strip()}"
                 )
             source = verify_dir / "parity" / f"{slice_name}.json"
             source.unlink(missing_ok=True)

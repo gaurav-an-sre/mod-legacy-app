@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 
 import console.main as console_main
+from orchestrator.gate import ParityGate
 from strangler.render import render_routes
 from tools.cutover import _error_rates, promote, rollback
-from tools.parity import _normalize
+from tools.parity import _normalize, compare_slice
+from tools.wait_for_legacy import wait_for_legacy
 
 ROOT = Path(__file__).parents[1]
 
@@ -88,6 +90,164 @@ def test_error_rates_ignore_samples_outside_soak_window(tmp_path: Path) -> None:
 def test_normalization_removes_volatile_keys() -> None:
     value = {"id": 1, "created_at": "today", "nested": {"name": "kept"}}
     assert _normalize(value, {"id", "created_at"}) == {"nested": {"name": "kept"}}
+
+
+class FakeParityResponse:
+    def __init__(
+        self,
+        status_code: int,
+        body: str,
+        *,
+        json_body: object | None = None,
+        content_type: str = "text/plain",
+    ) -> None:
+        self.status_code = status_code
+        self.text = body
+        self.json_body = json_body
+        self.headers = {"content-type": content_type}
+
+    def json(self) -> object | None:
+        return self.json_body
+
+
+class FakeParityClient:
+    def __init__(self, responses: list[FakeParityResponse]) -> None:
+        self.responses = responses
+
+    def __enter__(self) -> FakeParityClient:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def request(self, *_args: object, **_kwargs: object) -> FakeParityResponse:
+        return self.responses.pop(0)
+
+
+def _compare_one_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    responses: list[FakeParityResponse],
+) -> dict[str, object]:
+    requests = tmp_path / "requests.yaml"
+    requests.write_text("catalog:\n  - method: GET\n    path: /health\n", encoding="utf-8")
+    normalize = tmp_path / "normalize.yaml"
+    normalize.write_text("ignore_json_keys: []\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "tools.parity.httpx.Client",
+        lambda **_kwargs: FakeParityClient(responses),
+    )
+    return compare_slice("catalog", requests, normalize)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body"),
+    [
+        (500, "database unavailable"),
+        (200, "<b>Fatal error</b>: Uncaught mysqli_sql_exception: Connection refused"),
+    ],
+)
+def test_parity_rejects_unhealthy_legacy_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    body: str,
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [FakeParityResponse(status_code, body)],
+    )
+    assert "measurement_error" in report
+    assert not ParityGate(tmp_path).passed(report)
+    assert report["match_rate"] == 0.0
+
+
+def test_parity_compares_healthy_legacy_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [
+            FakeParityResponse(200, "healthy"),
+            FakeParityResponse(200, "healthy"),
+        ],
+    )
+    assert "measurement_error" not in report
+    assert report["match_rate"] == 1.0
+    assert ParityGate(tmp_path).passed(report)
+
+
+def test_parity_accepts_matching_legacy_401(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [
+            FakeParityResponse(401, "invalid credentials"),
+            FakeParityResponse(401, "invalid credentials"),
+        ],
+    )
+    assert "measurement_error" not in report
+    assert report["match_rate"] == 1.0
+
+
+def test_parity_ignores_error_markers_in_json_legacy_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [
+            FakeParityResponse(
+                200,
+                '{"message":"Uncaught product warning"}',
+                json_body={"message": "Uncaught product warning"},
+                content_type="application/json",
+            ),
+            FakeParityResponse(
+                200,
+                '{"message":"Uncaught product warning"}',
+                json_body={"message": "Uncaught product warning"},
+                content_type="application/json",
+            ),
+        ],
+    )
+    assert "measurement_error" not in report
+    assert report["match_rate"] == 1.0
+
+
+def test_wait_for_legacy_retries_php_error_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests = tmp_path / "requests.yaml"
+    requests.write_text("catalog:\n  - method: GET\n    path: /health\n", encoding="utf-8")
+
+    class FakeClient:
+        def __init__(self, responses: list[FakeParityResponse]) -> None:
+            self.responses = responses
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self, _url: str) -> FakeParityResponse:
+            return self.responses.pop(0)
+
+    client = FakeClient(
+        [
+            FakeParityResponse(200, "<b>Fatal error</b>: mysqli_sql_exception"),
+            FakeParityResponse(200, "healthy"),
+        ]
+    )
+    monkeypatch.setattr("tools.wait_for_legacy.httpx.Client", lambda **_kwargs: client)
+    monkeypatch.setattr("tools.wait_for_legacy.time.sleep", lambda _seconds: None)
+
+    wait_for_legacy("catalog", requests_path=requests, legacy_url="http://legacy", interval=0)
 
 
 def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> None:

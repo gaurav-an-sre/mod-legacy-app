@@ -398,12 +398,37 @@ def test_cloud_agent_factory_wires_notion_mcp(monkeypatch: pytest.MonkeyPatch) -
 def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -> None:
     calls: list[tuple[list[str], Path | None, dict[str, str] | None]] = []
     verify_dir = tmp_path / ".verify" / "catalog"
+    trusted_tools = tmp_path / "tools"
+    trusted_tools.mkdir()
+    (trusted_tools / "parity.py").write_text("trusted parity", encoding="utf-8")
+    (trusted_tools / "wait_for_legacy.py").write_text("trusted readiness", encoding="utf-8")
+    trusted_traffic = tmp_path / "traffic"
+    trusted_traffic.mkdir()
+    (trusted_traffic / "requests.yaml").write_text("trusted traffic", encoding="utf-8")
+    (trusted_traffic / "normalize.yaml").write_text("trusted normalize", encoding="utf-8")
+    trusted_at_compose_up = False
 
     def runner(args: list[str], *, cwd: Path, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal trusted_at_compose_up
         calls.append((args, cwd, _kwargs.get("env")))
         if args[:3] == ["git", "worktree", "add"]:
             verify_dir.mkdir(parents=True)
-        if args[:4] == ["docker", "compose", "-p", "verify-catalog"] and "parity" in args:
+            (verify_dir / "tools").mkdir()
+            (verify_dir / "tools" / "parity.py").write_text("agent parity", encoding="utf-8")
+            (verify_dir / "tools" / "wait_for_legacy.py").write_text(
+                "agent readiness", encoding="utf-8"
+            )
+            (verify_dir / "traffic").mkdir()
+            (verify_dir / "traffic" / "requests.yaml").write_text("agent traffic", encoding="utf-8")
+        if args[:5] == ["docker", "compose", "-p", "verify-catalog", "up"]:
+            trusted_at_compose_up = (
+                (verify_dir / "tools" / "parity.py").read_text(encoding="utf-8") == "trusted parity"
+                and (verify_dir / "tools" / "wait_for_legacy.py").read_text(encoding="utf-8")
+                == "trusted readiness"
+                and (verify_dir / "traffic" / "requests.yaml").read_text(encoding="utf-8")
+                == "trusted traffic"
+            )
+        if args[:4] == ["docker", "compose", "-p", "verify-catalog"] and "tools/parity.py" in args:
             report_dir = cwd / "parity"
             report_dir.mkdir(exist_ok=True)
             (report_dir / "catalog.json").write_text(
@@ -425,8 +450,10 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "origin",
         "refs/heads/devin/catalog:refs/remotes/origin/devin/catalog",
     ]
-    assert commands[1][:3] == ["git", "worktree", "add"]
-    assert commands[2] == [
+    assert commands[1] == ["git", "worktree", "remove", "--force", str(verify_dir)]
+    assert commands[2] == ["git", "worktree", "prune"]
+    assert commands[3][:3] == ["git", "worktree", "add"]
+    assert commands[4] == [
         "docker",
         "compose",
         "-p",
@@ -434,11 +461,34 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "up",
         "-d",
         "--build",
+        "--wait",
         "db",
         "legacy",
         "catalog",
     ]
-    assert commands[3][0:7] == [
+    assert trusted_at_compose_up
+    assert commands[5] == [
+        "docker",
+        "compose",
+        "-p",
+        "verify-catalog",
+        "--profile",
+        "tools",
+        "run",
+        "--rm",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
+        "-e",
+        "LEGACY_URL=http://legacy",
+        "parity",
+        "python",
+        "tools/wait_for_legacy.py",
+        "--slice",
+        "catalog",
+        "--timeout",
+        "120",
+    ]
+    assert commands[6][0:7] == [
         "docker",
         "compose",
         "-p",
@@ -447,13 +497,19 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "tools",
         "run",
     ]
-    assert commands[3][commands[3].index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
-    assert "CANDIDATE_URL=http://catalog:8001" in commands[3]
-    assert "--threshold" in commands[3]
-    assert commands[3][commands[3].index("--threshold") + 1] == "0.99"
-    assert calls[3][2]["HOST_UID"] == str(os.getuid())
-    assert calls[3][2]["HOST_GID"] == str(os.getgid())
+    assert commands[6][commands[6].index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
+    assert "CANDIDATE_URL=http://catalog:8001" in commands[6]
+    assert "--threshold" in commands[6]
+    assert commands[6][commands[6].index("--threshold") + 1] == "0.99"
+    assert calls[5][2]["HOST_UID"] == str(os.getuid())
+    assert calls[5][2]["HOST_GID"] == str(os.getgid())
+    assert calls[6][2]["HOST_UID"] == str(os.getuid())
+    assert calls[6][2]["HOST_GID"] == str(os.getgid())
+    assert all("seed.sql" not in command for command in commands)
     assert commands[-1] == ["docker", "compose", "-p", "verify-catalog", "down", "-v"]
+    assert (verify_dir / "traffic" / "normalize.yaml").read_text(encoding="utf-8") == (
+        "trusted normalize"
+    )
     assert report["match_rate"] == 0.75
     assert json.loads(gate.report_path("catalog").read_text())["match_rate"] == 0.75
 
