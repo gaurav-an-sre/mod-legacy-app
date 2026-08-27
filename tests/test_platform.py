@@ -92,10 +92,21 @@ def test_normalization_removes_volatile_keys() -> None:
 
 
 class FakeParityResponse:
-    def __init__(self, status_code: int, body: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        body: str,
+        *,
+        json_body: object | None = None,
+        content_type: str = "text/plain",
+    ) -> None:
         self.status_code = status_code
         self.text = body
-        self.headers = {"content-type": "text/plain"}
+        self.json_body = json_body
+        self.headers = {"content-type": content_type}
+
+    def json(self) -> object | None:
+        return self.json_body
 
 
 class FakeParityClient:
@@ -165,6 +176,46 @@ def test_parity_compares_healthy_legacy_baseline(
     assert "measurement_error" not in report
     assert report["match_rate"] == 1.0
     assert ParityGate(tmp_path).passed(report)
+
+
+def test_parity_accepts_matching_legacy_401(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [
+            FakeParityResponse(401, "invalid credentials"),
+            FakeParityResponse(401, "invalid credentials"),
+        ],
+    )
+    assert "measurement_error" not in report
+    assert report["match_rate"] == 1.0
+
+
+def test_parity_ignores_error_markers_in_json_legacy_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [
+            FakeParityResponse(
+                200,
+                '{"message":"Uncaught product warning"}',
+                json_body={"message": "Uncaught product warning"},
+                content_type="application/json",
+            ),
+            FakeParityResponse(
+                200,
+                '{"message":"Uncaught product warning"}',
+                json_body={"message": "Uncaught product warning"},
+                content_type="application/json",
+            ),
+        ],
+    )
+    assert "measurement_error" not in report
+    assert report["match_rate"] == 1.0
 
 
 def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> None:

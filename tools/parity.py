@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import yaml
 
-LEGACY_ERROR_MARKERS = ("Fatal error", "Uncaught ", "mysqli_sql_exception", "Warning:")
+LEGACY_ERROR_MARKERS = ("Fatal error", "Uncaught ", "mysqli_sql_exception")
 
 
 def _normalize(value: Any, ignored: set[str]) -> Any:
@@ -49,13 +49,15 @@ def _capture(
 
 
 def _legacy_baseline_error(record: dict[str, Any], request: dict[str, Any]) -> str | None:
-    if record["status"] >= 400:
+    if record["status"] >= 500:
         reason = f"HTTP {record['status']}"
-    else:
+    elif record["json"] is None:
         reason = next(
             (marker for marker in LEGACY_ERROR_MARKERS if marker in record["body"]),
             None,
         )
+    else:
+        reason = None
     if reason is None:
         return None
     snippet = " ".join(record["body"].split())[:200]
