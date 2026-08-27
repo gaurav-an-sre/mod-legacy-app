@@ -35,13 +35,13 @@ http {
     map $migration_route $migration_backend {
         default "legacy";
 {% for slice_name, slice in slices.items() %}
-{% if slice.upstream %}
+{% if slice.upstream and slice.candidate %}
         {{ slice_name }} ${{ slice_name }}_backend;
 {% endif %}
 {% endfor %}
     }
 {% for slice_name, slice in slices.items() %}
-{% if slice.upstream %}
+{% if slice.upstream and slice.candidate %}
     split_clients $request_key ${{ slice_name }}_backend {
 {% if slice.weight <= 0 %}
         * legacy;
@@ -69,7 +69,7 @@ http {
 {% for slice_name, slice in slices.items() %}
 {% for route in slice.routes %}
         location = {{ route }} {
-{% if slice.upstream %}
+{% if slice.upstream and slice.candidate %}
 {% if slice.mirror %}
             mirror /_shadow_{{ slice_name }};
 {% endif %}
@@ -83,7 +83,7 @@ http {
 {% endfor %}
 {% endfor %}
 {% for slice_name, slice in slices.items() %}
-{% if slice.upstream and slice.mirror %}
+{% if slice.upstream and slice.candidate and slice.mirror %}
         location = /_shadow_{{ slice_name }} {
             internal;
             proxy_pass http://{{ slice.upstream }}_upstream$request_uri;
