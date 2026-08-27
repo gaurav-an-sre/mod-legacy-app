@@ -221,6 +221,102 @@ def test_restart_resumes_existing_agent(tmp_path: Path) -> None:
     assert State.load(state_path).slice("catalog").status == "done"
 
 
+def test_missing_agent_is_recreated_from_slice_branch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cursor_sdk import AgentNotFoundError
+
+    class DeadAgent:
+        agent_id = "agent-dead"
+
+        def send(self, _prompt: str):
+            raise AgentNotFoundError("agent gone", code="agent_not_found")
+
+    class FreshAgent(FakeAgent):
+        def __init__(self) -> None:
+            super().__init__("agent-fresh", [cutover_json()])
+
+    class RecreatingFleet:
+        def __init__(self) -> None:
+            self.created: list[dict[str, Any]] = []
+
+        def resume_agent(self, _agent_id: str) -> DeadAgent:
+            return DeadAgent()
+
+        def create_agent(self, *args: Any, **kwargs: Any) -> FreshAgent:
+            self.created.append({"args": args, "kwargs": kwargs})
+            return FreshAgent()
+
+    fleet = RecreatingFleet()
+    state = State()
+    state.slice("catalog").agent_id = "agent-dead"
+    state.slice("catalog").branch = "cursor/catalog"
+    state.slice("catalog").phase = "cutover_plan"
+    state.slice("catalog").status = "running"
+    state_path = tmp_path / "state.json"
+    state.save(state_path)
+    migration = Migration(
+        repo=Path(__file__).parents[1],
+        fleet=fleet,
+        gate=FakeGate(tmp_path),
+        state=state,
+        state_path=state_path,
+        out_dir=tmp_path / "out",
+    )
+
+    assert migration.run(["catalog"]) == 0
+
+    saved = State.load(state_path).slice("catalog")
+    assert saved.agent_id == "agent-fresh"
+    assert len(fleet.created) == 1
+    assert fleet.created[0]["kwargs"]["starting_ref"] == "cursor/catalog"
+    assert "agent agent-dead is gone; recreated as agent-fresh" in capsys.readouterr().out
+
+
+def test_second_missing_agent_fails_slice_after_one_recreation(tmp_path: Path) -> None:
+    from cursor_sdk import AgentNotFoundError
+
+    class DeadAgent:
+        agent_id = "agent-dead"
+
+        def send(self, _prompt: str):
+            raise AgentNotFoundError("agent gone", code="agent_not_found")
+
+    class RecreatingFleet:
+        def __init__(self) -> None:
+            self.created = 0
+
+        def resume_agent(self, _agent_id: str) -> DeadAgent:
+            return DeadAgent()
+
+        def create_agent(self, *_args: Any, **_kwargs: Any) -> DeadAgent:
+            self.created += 1
+            return DeadAgent()
+
+    fleet = RecreatingFleet()
+    state = State()
+    state.slice("catalog").agent_id = "agent-dead"
+    state.slice("catalog").branch = "cursor/catalog"
+    state.slice("catalog").phase = "cutover_plan"
+    state.slice("catalog").status = "running"
+    state_path = tmp_path / "state.json"
+    state.save(state_path)
+    migration = Migration(
+        repo=Path(__file__).parents[1],
+        fleet=fleet,
+        gate=FakeGate(tmp_path),
+        state=state,
+        state_path=state_path,
+        out_dir=tmp_path / "out",
+    )
+
+    assert migration.run(["catalog"]) == 1
+
+    saved = State.load(state_path).slice("catalog")
+    assert saved.status == "failed"
+    assert fleet.created == 1
+
+
 def test_invalid_reply_is_saved_raw_and_slice_fails(tmp_path: Path) -> None:
     agent = FakeAgent("agent-1", ["not json"])
     fleet = FakeFleet(agent)
@@ -263,10 +359,11 @@ def test_cloud_agent_factory_omits_mcp_without_token(monkeypatch: pytest.MonkeyP
     )
     monkeypatch.setitem(sys.modules, "cursor_sdk", fake_sdk)
     fleet = CloudFleet("https://example.test/repo", "secret")
-    fleet.create_agent("catalog", 1)
+    fleet.create_agent("catalog", 1, starting_ref="cursor/catalog")
     assert calls[0]["model"] == "composer-2.5"
     assert "options" not in calls[0]
     assert not hasattr(calls[0]["cloud"], "mcp_servers")
+    assert calls[0]["cloud"].repos[0].starting_ref == "cursor/catalog"
 
 
 def test_cloud_agent_factory_wires_notion_mcp(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -438,6 +535,7 @@ def test_happy_path_persists_agent_metadata_and_streams(tmp_path: Path) -> None:
     assert state.service_name == "catalog"
     assert state.container_port == 8001
     assert state.status == "done"
+    assert fleet.created == 1
     assert len(state.run_ids) == 2
     assert (tmp_path / "out/catalog/extract.jsonl").exists()
     assert (tmp_path / "out/catalog/cutover_plan.json").exists()

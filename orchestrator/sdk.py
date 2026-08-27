@@ -64,10 +64,16 @@ class CloudFleet:
         *,
         env_vars: dict[str, str] | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        starting_ref: str | None = None,
     ) -> Any:
         sdk = self._sdk()
         cloud = sdk.CloudAgentOptions(
-            repos=[sdk.CloudRepository(url=self.repo_url, starting_ref=self.starting_ref)],
+            repos=[
+                sdk.CloudRepository(
+                    url=self.repo_url,
+                    starting_ref=starting_ref if starting_ref is not None else self.starting_ref,
+                )
+            ],
             auto_create_pr=self.auto_create_pr,
             env_vars=env_vars or {},
             metadata={"demo": DEMO_TAG, "slice": slice_name, "wave": str(wave)},
