@@ -350,6 +350,7 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "tools",
         "run",
     ]
+    assert commands[3][commands[3].index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
     assert "CANDIDATE_URL=http://catalog:8001" in commands[3]
     assert "--threshold" in commands[3]
     assert commands[3][commands[3].index("--threshold") + 1] == "0.99"
