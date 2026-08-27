@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,44 @@ def test_routes_render_weighted_backend_and_mirror(tmp_path: Path) -> None:
     assert "0% candidate" not in rendered
 
 
+def test_non_idempotent_slice_is_not_mirrored(tmp_path: Path) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  catalog:\n"
+        "    weight: 0\n"
+        "    mirror: true\n"
+        "    upstream: candidate_catalog\n"
+        "    routes: [/api/catalog/products]\n"
+        "  orders:\n"
+        "    weight: 0\n"
+        "    mirror: false\n"
+        "    upstream: candidate_orders\n"
+        "    routes: [/api/orders/checkout]\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "nginx.conf"
+    render_routes(routes, output)
+    rendered = output.read_text(encoding="utf-8")
+    assert "mirror /_shadow_catalog" in rendered
+    assert "location = /_shadow_catalog" in rendered
+    assert "mirror /_shadow_orders" not in rendered
+    assert "location = /_shadow_orders" not in rendered
+
+
+def test_error_rates_ignore_samples_outside_soak_window(tmp_path: Path) -> None:
+    log = tmp_path / "access.log"
+    recent = datetime.now(UTC).replace(microsecond=0).isoformat()
+    log.write_text(
+        f"{recent} route=catalog backend=candidate status=200 latency_ms=0.01\n"
+        "2024-01-01T00:00:00+00:00 route=catalog backend=candidate status=500 latency_ms=0.01\n"
+        f"{recent} route=catalog backend=legacy status=500 latency_ms=0.01\n",
+        encoding="utf-8",
+    )
+    assert _error_rates(log, soak_seconds=300) == (1.0, 0.0)
+    assert _error_rates(log, soak_seconds=10**9) == (1.0, 0.5)
+
+
 def test_normalization_removes_volatile_keys() -> None:
     value = {"id": 1, "created_at": "today", "nested": {"name": "kept"}}
     assert _normalize(value, {"id", "created_at"}) == {"nested": {"name": "kept"}}
@@ -30,12 +69,12 @@ def test_normalization_removes_volatile_keys() -> None:
 def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> None:
     log = tmp_path / "access.log"
     log.write_text(
-        "2024 route=catalog backend=legacy status=200 latency_ms=0.01\n"
-        "2024 route=catalog backend=legacy status=500 latency_ms=0.01\n"
-        "2024 route=catalog backend=candidate status=200 latency_ms=0.01\n",
+        "2024-01-01T00:00:00+00:00 route=catalog backend=legacy status=200 latency_ms=0.01\n"
+        "2024-01-01T00:00:01+00:00 route=catalog backend=legacy status=500 latency_ms=0.01\n"
+        "2024-01-01T00:00:02+00:00 route=catalog backend=candidate status=200 latency_ms=0.01\n",
         encoding="utf-8",
     )
-    assert _error_rates(log) == (0.5, 0.0)
+    assert _error_rates(log, soak_seconds=10**9) == (0.5, 0.0)
 
 
 def test_promote_rejects_low_parity_without_mutating_routes(
@@ -46,6 +85,7 @@ def test_promote_rejects_low_parity_without_mutating_routes(
         "slices:\n"
         "  catalog:\n"
         "    weight: 0\n"
+        "    mirror: true\n"
         "    upstream: candidate\n"
         "    routes: [/api/catalog/products]\n",
         encoding="utf-8",

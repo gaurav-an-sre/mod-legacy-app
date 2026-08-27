@@ -67,13 +67,19 @@ def migration_console() -> str:
     cards = []
     for state in _state():
         rate = state["rate"]
-        gate = rate is not None and rate >= 0.99
+        started = state["upstream"] != "legacy only"
+        gate = started and rate is not None and rate >= 0.99
+        if not started:
+            label, tone = "NOT STARTED", "idle"
+        elif gate:
+            label, tone = "GATE READY", "good"
+        else:
+            label, tone = "NEEDS WORK", "bad"
         rate_text = f"{rate:.1%}" if rate is not None else "not run"
         timestamp = html.escape(state["timestamp"]) if state["timestamp"] else "—"
         cards.append(
             f'<section class="card"><div class="row"><h2>{html.escape(state["name"])}</h2>'
-            f'<strong class="{"good" if gate else "bad"}">'
-            f"{'GATE READY' if gate else 'NEEDS WORK'}</strong></div>"
+            f'<strong class="{tone}">{label}</strong></div>'
             f"<p>Candidate: <code>{html.escape(str(state['upstream']))}</code> · "
             f"parity: <b>{rate_text}</b> · report: {timestamp}</p>"
             f'<div class="bar"><span style="width:{state["weight"]}%"></span></div>'
@@ -90,7 +96,7 @@ def migration_console() -> str:
         "main{max-width:900px;margin:auto}.card{background:#1f2937;"
         "border:1px solid #374151;border-radius:10px;padding:20px;margin:16px 0}"
         "h1{font-size:2rem}.row{display:flex;justify-content:space-between;"
-        "align-items:center}.good{color:#86efac}.bad{color:#fca5a5}"
+        "align-items:center}.good{color:#86efac}.bad{color:#fca5a5}.idle{color:#94a3b8}"
         ".bar{height:14px;border-radius:8px;background:#374151;overflow:hidden}"
         ".bar span{display:block;height:100%;background:#22c55e}"
         "code{color:#93c5fd}p{color:#cbd5e1}"

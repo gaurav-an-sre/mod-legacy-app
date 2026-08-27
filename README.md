@@ -55,24 +55,42 @@ make rollback
 
 `tools/parity.py` replays `traffic/requests.yaml`, compares status and normalized
 JSON/text bodies, and writes a self-explanatory result for every request to
-`parity/<slice>.json`. Normalization removes deterministic volatile keys such
-as IDs and timestamps. The promotion gate is decided by this replay comparator,
-not by diffing mirrored responses. Mirroring exercises a candidate with real
-load before it receives real users; it is not the parity decision.
+`parity/<slice>.json`. Normalization (`traffic/normalize.yaml`) drops only
+genuinely volatile fields — `order_id`, `created_at`, `timestamp`, and the
+`set-cookie`/`date` headers. Product ids are load-bearing catalog behaviour and
+are compared, so a candidate that returns the wrong ids fails parity.
+
+The promotion gate is decided by this replay comparator, not by diffing mirrored
+responses. Mirroring exercises a candidate with real load before it receives
+real users; it is not the parity decision. Mirroring is per-slice
+(`mirror: true|false` in `strangler/routes.yaml`): the non-idempotent `orders`
+and `users` slices are deliberately **not** shadowed, because a mirrored
+`POST /api/orders/checkout` would apply the side effect twice. Those slices are
+gated by replay parity alone.
 
 The controller owns the weights `[0, 5, 50, 100]` in `strangler/routes.yaml`.
 `tools/cutover.py` requires the latest parity report to meet the threshold
-(default `0.99`) and requires the candidate access-log error rate to be no
-greater than legacy's over the available soak log. It rewrites the nginx
-configuration and runs `nginx -s reload` through Compose, rather than
-restarting the façade.
+(default `0.99`) and requires the candidate 5xx rate in the façade access log to
+be no greater than legacy's over the trailing soak window (`--soak-seconds`,
+default 300). Be aware that a slice with no candidate samples inside that window
+passes the error gate trivially — with zero requests there is nothing to fail on,
+so replay parity is the real gate there. The controller rewrites the nginx
+configuration and runs `nginx -s reload` through Compose, rather than restarting
+the façade.
+
+Every `make` target that takes a slice honours `SLICE` (default `catalog`), for
+example `make parity SLICE=orders` or `make promote SLICE=reports`.
 
 ## Cursor agent handoff
 
 `services/` intentionally contains only a README. Extraction agents should
 write modernized services there, but must never modify `legacy/` or `db/`, and
-must never edit a route weight. See `AGENTS.md`. The façade's
-`.cursor/hooks.json` policy protects evidence paths locally.
+must never edit a route weight. See `AGENTS.md`. The local `.cursor/hooks.json`
+policy enforces that immutability: agent write, edit, and delete tools are
+blocked on `legacy/`, `db/`, and `strangler/routes.yaml`. Shell commands are not
+blocked, because extraction agents must be able to read the monolith and run
+`make seed`; the cutover controller writes `routes.yaml` through a plain
+subprocess, so promotion and rollback are unaffected.
 
 Cloud agents use `.cursor/Dockerfile`, which installs Docker Engine, Compose,
 and the nested-container overlay and iptables compatibility layers needed to

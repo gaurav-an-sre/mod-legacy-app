@@ -24,14 +24,10 @@ def _normalize(value: Any, ignored: set[str]) -> Any:
     return value
 
 
-def _body(response: httpx.Response, ignored: set[str]) -> Any:
-    try:
-        return _normalize(response.json(), ignored)
-    except ValueError:
-        return response.text
-
-
-def _request(client: httpx.Client, base: str, request: dict[str, Any]) -> dict[str, Any]:
+def _capture(
+    client: httpx.Client, base: str, request: dict[str, Any], ignored: set[str]
+) -> tuple[dict[str, Any], Any]:
+    """Replay one request and return its record plus the value used for comparison."""
     response = client.request(
         request["method"],
         base.rstrip("/") + request["path"],
@@ -39,13 +35,15 @@ def _request(client: httpx.Client, base: str, request: dict[str, Any]) -> dict[s
         json=request.get("body"),
         headers=request.get("headers") or {},
     )
-    return {
-        "status": response.status_code,
-        "body": response.text,
-        "json": response.json()
-        if "application/json" in response.headers.get("content-type", "")
-        else None,
-    }
+    parsed: Any = None
+    if "application/json" in response.headers.get("content-type", ""):
+        try:
+            parsed = response.json()
+        except ValueError:
+            parsed = None
+    record = {"status": response.status_code, "body": response.text, "json": parsed}
+    comparable = _normalize(parsed, ignored) if parsed is not None else response.text
+    return record, comparable
 
 
 def compare_slice(
@@ -69,28 +67,8 @@ def compare_slice(
     with httpx.Client(timeout=10) as client:
         for request in requests:
             try:
-                legacy = _request(client, legacy_url, request)
-                candidate = _request(client, candidate_url, request)
-                legacy_body = _body(
-                    httpx.Response(
-                        legacy["status"],
-                        content=legacy["body"],
-                        headers={"content-type": "application/json"}
-                        if legacy["json"] is not None
-                        else {},
-                    ),
-                    ignored,
-                )
-                candidate_body = _body(
-                    httpx.Response(
-                        candidate["status"],
-                        content=candidate["body"],
-                        headers={"content-type": "application/json"}
-                        if candidate["json"] is not None
-                        else {},
-                    ),
-                    ignored,
-                )
+                legacy, legacy_body = _capture(client, legacy_url, request, ignored)
+                candidate, candidate_body = _capture(client, candidate_url, request, ignored)
                 diff = []
                 if legacy["status"] != candidate["status"]:
                     diff.append(

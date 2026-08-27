@@ -1,6 +1,7 @@
 SHELL := /bin/sh
 PYTHON := .venv/bin/python
 COMPOSE := docker compose
+SLICE ?= catalog
 
 .PHONY: up render seed parity promote rollback down test lint
 
@@ -14,13 +15,13 @@ seed:
 	$(COMPOSE) exec -T db mysql -ulegacy -plegacy legacy_shop < db/seed.sql
 
 parity:
-	$(COMPOSE) --profile tools run --rm parity python tools/parity.py --slice catalog
+	$(COMPOSE) --profile tools run --rm parity python tools/parity.py --slice $(SLICE)
 
 promote:
-	$(PYTHON) tools/cutover.py promote --slice catalog
+	$(PYTHON) tools/cutover.py promote --slice $(SLICE)
 
 rollback:
-	$(PYTHON) tools/cutover.py rollback --slice catalog
+	$(PYTHON) tools/cutover.py rollback --slice $(SLICE)
 
 down:
 	$(COMPOSE) down

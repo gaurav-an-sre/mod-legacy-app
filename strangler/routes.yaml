@@ -1,23 +1,27 @@
 slices:
   catalog:
     weight: 0
+    mirror: true
     upstream: candidate_catalog
     routes:
     - /api/catalog/products
     - /api/catalog/product
   orders:
     weight: 0
+    mirror: false
     upstream: null
     routes:
     - /api/orders/cart
     - /api/orders/checkout
   users:
     weight: 0
+    mirror: false
     upstream: null
     routes:
     - /api/users/login
   reports:
     weight: 0
+    mirror: true
     upstream: null
     routes:
     - /api/reports/top-products
