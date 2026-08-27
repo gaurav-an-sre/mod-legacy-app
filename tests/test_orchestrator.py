@@ -12,6 +12,7 @@ import pytest
 
 from orchestrator.gate import ParityGate
 from orchestrator.migrate import Migration
+from orchestrator.notion import ApiStatusWriter
 from orchestrator.sdk import CloudFleet
 from orchestrator.state import State
 from orchestrator.validation import ContractError, parse_phase_reply
@@ -107,6 +108,83 @@ def test_contracts_are_strict() -> None:
     with pytest.raises(ContractError):
         parse_phase_reply("extract", "catalog", '{"slice": "catalog"}')
     assert parse_phase_reply("extract", "catalog", extract_json())["service_name"] == "catalog"
+
+
+def test_notion_create_page_uses_title_property_shape() -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict[str, str]:
+            return {"id": "page-1"}
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.json: dict[str, Any] | None = None
+
+        def post(self, _url: str, **kwargs: Any) -> FakeResponse:
+            self.json = kwargs["json"]
+            return FakeResponse()
+
+    client = FakeClient()
+    writer = ApiStatusWriter(token="token", parent_page_id="parent", client=client)
+
+    assert writer._create_page("catalog") == "page-1"
+    assert client.json is not None
+    assert client.json["properties"] == {
+        "title": {"title": [{"type": "text", "text": {"content": "catalog migration status"}}]}
+    }
+
+
+def test_notion_error_includes_response_body() -> None:
+    class FakeResponse:
+        status_code = 400
+        request = SimpleNamespace(method="POST", url="https://api.notion.com/v1/pages")
+        text = "title property is invalid"
+
+    class FakeClient:
+        def post(self, _url: str, **_kwargs: Any) -> FakeResponse:
+            return FakeResponse()
+
+    writer = ApiStatusWriter(token="token", parent_page_id="parent", client=FakeClient())
+
+    with pytest.raises(RuntimeError, match="title property is invalid"):
+        writer._create_page("catalog")
+
+
+def test_notion_record_reuses_page_after_patch_failure() -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict[str, str]:
+            return {"id": "page-1"}
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.post_count = 0
+            self.patch_urls: list[str] = []
+
+        def post(self, _url: str, **_kwargs: Any) -> FakeResponse:
+            self.post_count += 1
+            return FakeResponse()
+
+        def patch(self, url: str, **_kwargs: Any) -> FakeResponse:
+            self.patch_urls.append(url)
+            if len(self.patch_urls) == 1:
+                raise RuntimeError("transient patch failure")
+            return FakeResponse()
+
+    client = FakeClient()
+    writer = ApiStatusWriter(token="token", parent_page_id="parent", client=client)
+    summary = {"phase": "extract", "status": "running", "weight": 0, "parity_rate": None}
+
+    with pytest.raises(RuntimeError, match="transient patch failure"):
+        writer.record("catalog", summary, None)
+    assert writer.record("catalog", summary, None) == "page-1"
+    assert client.post_count == 1
+    assert client.patch_urls == [
+        "https://api.notion.com/v1/blocks/page-1/children",
+        "https://api.notion.com/v1/blocks/page-1/children",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -363,6 +441,34 @@ def test_happy_path_persists_agent_metadata_and_streams(tmp_path: Path) -> None:
     assert len(state.run_ids) == 2
     assert (tmp_path / "out/catalog/extract.jsonl").exists()
     assert (tmp_path / "out/catalog/cutover_plan.json").exists()
+
+
+def test_notion_status_failure_does_not_fail_slice_or_skip_state_save(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class RaisingStatusWriter:
+        def record(
+            self, _slice_name: str, _summary: dict[str, Any], _page_id: str | None
+        ) -> str | None:
+            raise RuntimeError("Notion unavailable")
+
+    agent = FakeAgent("agent-1", [extract_json(), cutover_json()])
+    migration = Migration(
+        repo=Path(__file__).parents[1],
+        fleet=FakeFleet(agent),
+        gate=FakeGate(tmp_path),
+        state=State(),
+        state_path=tmp_path / "state.json",
+        out_dir=tmp_path / "out",
+        notion_writer=RaisingStatusWriter(),
+    )
+
+    assert migration.run(["catalog"]) == 0
+
+    state = State.load(tmp_path / "state.json").slice("catalog")
+    assert state.phase == "done"
+    assert state.status == "done"
+    assert "notion status update failed: Notion unavailable" in capsys.readouterr().out
 
 
 def test_sdk_api_errors_are_not_retried_via_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
