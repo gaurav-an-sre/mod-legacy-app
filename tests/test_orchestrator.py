@@ -150,6 +150,42 @@ def test_notion_error_includes_response_body() -> None:
         writer._create_page("catalog")
 
 
+def test_notion_record_reuses_page_after_patch_failure() -> None:
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict[str, str]:
+            return {"id": "page-1"}
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.post_count = 0
+            self.patch_urls: list[str] = []
+
+        def post(self, _url: str, **_kwargs: Any) -> FakeResponse:
+            self.post_count += 1
+            return FakeResponse()
+
+        def patch(self, url: str, **_kwargs: Any) -> FakeResponse:
+            self.patch_urls.append(url)
+            if len(self.patch_urls) == 1:
+                raise RuntimeError("transient patch failure")
+            return FakeResponse()
+
+    client = FakeClient()
+    writer = ApiStatusWriter(token="token", parent_page_id="parent", client=client)
+    summary = {"phase": "extract", "status": "running", "weight": 0, "parity_rate": None}
+
+    with pytest.raises(RuntimeError, match="transient patch failure"):
+        writer.record("catalog", summary, None)
+    assert writer.record("catalog", summary, None) == "page-1"
+    assert client.post_count == 1
+    assert client.patch_urls == [
+        "https://api.notion.com/v1/blocks/page-1/children",
+        "https://api.notion.com/v1/blocks/page-1/children",
+    ]
+
+
 @pytest.mark.parametrize(
     "branch", ["--upload-pack=evil", "feature/../main", "feature@{1}", "feature/"]
 )

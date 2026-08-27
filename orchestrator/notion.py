@@ -7,7 +7,7 @@ separate concern handled by the `notion_status` Run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -31,6 +31,7 @@ class ApiStatusWriter:
     token: str
     parent_page_id: str
     client: Any = None
+    pages: dict[str, str] = field(default_factory=dict)
 
     def _http(self) -> Any:
         if self.client is None:
@@ -66,7 +67,10 @@ class ApiStatusWriter:
         return str(response.json()["id"])
 
     def record(self, slice_name: str, summary: dict[str, Any], page_id: str | None) -> str | None:
-        target = page_id or self._create_page(slice_name)
+        target = page_id or self.pages.get(slice_name)
+        if target is None:
+            target = self._create_page(slice_name)
+            self.pages[slice_name] = target
         stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%SZ")
         rate = summary.get("parity_rate")
         line = (
