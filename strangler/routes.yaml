@@ -10,8 +10,8 @@ slices:
   orders:
     weight: 0
     mirror: false
-    upstream: null
-    candidate: null
+    upstream: candidate_orders
+    candidate: orders:8002
     routes:
     - /api/orders/cart
     - /api/orders/checkout
