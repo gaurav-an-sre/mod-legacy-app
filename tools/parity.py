@@ -11,6 +11,8 @@ from typing import Any
 import httpx
 import yaml
 
+LEGACY_ERROR_MARKERS = ("Fatal error", "Uncaught ", "mysqli_sql_exception", "Warning:")
+
 
 def _normalize(value: Any, ignored: set[str]) -> Any:
     if isinstance(value, dict):
@@ -46,6 +48,23 @@ def _capture(
     return record, comparable
 
 
+def _legacy_baseline_error(record: dict[str, Any], request: dict[str, Any]) -> str | None:
+    if record["status"] >= 400:
+        reason = f"HTTP {record['status']}"
+    else:
+        reason = next(
+            (marker for marker in LEGACY_ERROR_MARKERS if marker in record["body"]),
+            None,
+        )
+    if reason is None:
+        return None
+    snippet = " ".join(record["body"].split())[:200]
+    return (
+        f"legacy baseline unhealthy on {request['method']} {request['path']}: "
+        f"{reason}; body={snippet}"
+    )
+
+
 def compare_slice(
     slice_name: str,
     requests_path: Path = Path("traffic/requests.yaml"),
@@ -64,10 +83,22 @@ def compare_slice(
     candidate_url = candidate_url or os.getenv("CANDIDATE_URL", "http://localhost:8081")
     results = []
     matches = 0
+    measurement_error: str | None = None
     with httpx.Client(timeout=10) as client:
         for request in requests:
             try:
                 legacy, legacy_body = _capture(client, legacy_url, request, ignored)
+                measurement_error = _legacy_baseline_error(legacy, request)
+                if measurement_error:
+                    results.append(
+                        {
+                            "request": request,
+                            "legacy": legacy,
+                            "candidate": None,
+                            "diff": [measurement_error],
+                        }
+                    )
+                    break
                 candidate, candidate_body = _capture(client, candidate_url, request, ignored)
                 diff = []
                 if legacy["status"] != candidate["status"]:
@@ -105,6 +136,8 @@ def compare_slice(
         "total": len(requests),
         "requests": results,
     }
+    if measurement_error:
+        report["measurement_error"] = measurement_error
     return report
 
 

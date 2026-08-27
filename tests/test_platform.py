@@ -7,9 +7,10 @@ from pathlib import Path
 import pytest
 
 import console.main as console_main
+from orchestrator.gate import ParityGate
 from strangler.render import render_routes
 from tools.cutover import _error_rates, promote, rollback
-from tools.parity import _normalize
+from tools.parity import _normalize, compare_slice
 
 ROOT = Path(__file__).parents[1]
 
@@ -88,6 +89,82 @@ def test_error_rates_ignore_samples_outside_soak_window(tmp_path: Path) -> None:
 def test_normalization_removes_volatile_keys() -> None:
     value = {"id": 1, "created_at": "today", "nested": {"name": "kept"}}
     assert _normalize(value, {"id", "created_at"}) == {"nested": {"name": "kept"}}
+
+
+class FakeParityResponse:
+    def __init__(self, status_code: int, body: str) -> None:
+        self.status_code = status_code
+        self.text = body
+        self.headers = {"content-type": "text/plain"}
+
+
+class FakeParityClient:
+    def __init__(self, responses: list[FakeParityResponse]) -> None:
+        self.responses = responses
+
+    def __enter__(self) -> FakeParityClient:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def request(self, *_args: object, **_kwargs: object) -> FakeParityResponse:
+        return self.responses.pop(0)
+
+
+def _compare_one_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    responses: list[FakeParityResponse],
+) -> dict[str, object]:
+    requests = tmp_path / "requests.yaml"
+    requests.write_text("catalog:\n  - method: GET\n    path: /health\n", encoding="utf-8")
+    normalize = tmp_path / "normalize.yaml"
+    normalize.write_text("ignore_json_keys: []\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "tools.parity.httpx.Client",
+        lambda **_kwargs: FakeParityClient(responses),
+    )
+    return compare_slice("catalog", requests, normalize)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body"),
+    [
+        (500, "database unavailable"),
+        (200, "<b>Fatal error</b>: Uncaught mysqli_sql_exception: Connection refused"),
+    ],
+)
+def test_parity_rejects_unhealthy_legacy_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    body: str,
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [FakeParityResponse(status_code, body)],
+    )
+    assert "measurement_error" in report
+    assert not ParityGate(tmp_path).passed(report)
+    assert report["match_rate"] == 0.0
+
+
+def test_parity_compares_healthy_legacy_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = _compare_one_request(
+        tmp_path,
+        monkeypatch,
+        [
+            FakeParityResponse(200, "healthy"),
+            FakeParityResponse(200, "healthy"),
+        ],
+    )
+    assert "measurement_error" not in report
+    assert report["match_rate"] == 1.0
+    assert ParityGate(tmp_path).passed(report)
 
 
 def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> None:

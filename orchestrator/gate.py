@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,15 +53,44 @@ class ParityGate:
         *,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
+        input_data: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        return self.runner(
-            args,
-            cwd=cwd,
-            check=False,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
+        kwargs: dict[str, Any] = {
+            "cwd": cwd,
+            "check": False,
+            "capture_output": True,
+            "text": True,
+            "env": env,
+        }
+        if input_data is not None:
+            kwargs["input"] = input_data
+        return self.runner(args, **kwargs)
+
+    def _wait_for_database(self, project: str, cwd: Path) -> None:
+        deadline = time.monotonic() + 120
+        command = [
+            "docker",
+            "compose",
+            "-p",
+            project,
+            "exec",
+            "-T",
+            "db",
+            "mysqladmin",
+            "ping",
+            "-h",
+            "localhost",
+            "-proot",
+        ]
+        last_result: subprocess.CompletedProcess[str] | None = None
+        while True:
+            last_result = self._run(command, cwd=cwd)
+            if last_result.returncode == 0:
+                return
+            if time.monotonic() >= deadline:
+                detail = last_result.stderr.strip() or last_result.stdout.strip()
+                raise MeasurementFailure(f"database readiness timed out: {detail}")
+            time.sleep(1)
 
     def _verify_worktree(self, slice_name: str, branch: str) -> Path:
         _validate_branch(branch)
@@ -127,6 +157,30 @@ class ParityGate:
             if started.returncode:
                 raise MeasurementFailure(
                     f"compose build failed: {started.stderr.strip() or started.stdout.strip()}"
+                )
+            self._wait_for_database(project, verify_dir)
+            seed_path = self.repo / "db" / "seed.sql"
+            seed = seed_path.read_text(encoding="utf-8")
+            seeded = self._run(
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    project,
+                    "exec",
+                    "-T",
+                    "db",
+                    "mysql",
+                    "-ulegacy",
+                    "-plegacy",
+                    "legacy_shop",
+                ],
+                cwd=verify_dir,
+                input_data=seed,
+            )
+            if seeded.returncode:
+                raise MeasurementFailure(
+                    f"database seed failed: {seeded.stderr.strip() or seeded.stdout.strip()}"
                 )
             source = verify_dir / "parity" / f"{slice_name}.json"
             source.unlink(missing_ok=True)

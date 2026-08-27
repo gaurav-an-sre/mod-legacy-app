@@ -301,6 +301,9 @@ def test_cloud_agent_factory_wires_notion_mcp(monkeypatch: pytest.MonkeyPatch) -
 def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -> None:
     calls: list[tuple[list[str], Path | None, dict[str, str] | None]] = []
     verify_dir = tmp_path / ".verify" / "catalog"
+    seed_path = tmp_path / "db" / "seed.sql"
+    seed_path.parent.mkdir()
+    seed_path.write_text("-- seed", encoding="utf-8")
 
     def runner(args: list[str], *, cwd: Path, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append((args, cwd, _kwargs.get("env")))
@@ -341,7 +344,34 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "legacy",
         "catalog",
     ]
-    assert commands[3][0:7] == [
+    assert commands[3] == [
+        "docker",
+        "compose",
+        "-p",
+        "verify-catalog",
+        "exec",
+        "-T",
+        "db",
+        "mysqladmin",
+        "ping",
+        "-h",
+        "localhost",
+        "-proot",
+    ]
+    assert commands[4] == [
+        "docker",
+        "compose",
+        "-p",
+        "verify-catalog",
+        "exec",
+        "-T",
+        "db",
+        "mysql",
+        "-ulegacy",
+        "-plegacy",
+        "legacy_shop",
+    ]
+    assert commands[5][0:7] == [
         "docker",
         "compose",
         "-p",
@@ -350,11 +380,11 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "tools",
         "run",
     ]
-    assert "CANDIDATE_URL=http://catalog:8001" in commands[3]
-    assert "--threshold" in commands[3]
-    assert commands[3][commands[3].index("--threshold") + 1] == "0.99"
-    assert calls[3][2]["HOST_UID"] == str(os.getuid())
-    assert calls[3][2]["HOST_GID"] == str(os.getgid())
+    assert "CANDIDATE_URL=http://catalog:8001" in commands[5]
+    assert "--threshold" in commands[5]
+    assert commands[5][commands[5].index("--threshold") + 1] == "0.99"
+    assert calls[5][2]["HOST_UID"] == str(os.getuid())
+    assert calls[5][2]["HOST_GID"] == str(os.getgid())
     assert commands[-1] == ["docker", "compose", "-p", "verify-catalog", "down", "-v"]
     assert report["match_rate"] == 0.75
     assert json.loads(gate.report_path("catalog").read_text())["match_rate"] == 0.75
