@@ -13,6 +13,9 @@ TERMINAL = ("done", "blocked", "failed")
 class SliceState:
     name: str
     agent_id: str | None = None
+    branch: str | None = None
+    service_name: str | None = None
+    container_port: int | None = None
     phase: str = "extract"
     status: str = "pending"
     run_ids: list[str] = field(default_factory=list)

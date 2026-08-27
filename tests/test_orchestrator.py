@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
+from orchestrator.gate import ParityGate
 from orchestrator.migrate import Migration
 from orchestrator.sdk import CloudFleet
 from orchestrator.state import State
@@ -56,7 +59,7 @@ class FakeGate:
     def __init__(self, repo: Path) -> None:
         self.repo = repo
 
-    def measure(self, _slice: str):
+    def measure(self, _slice: str, **_kwargs: Any):
         return {"match_rate": 1.0}
 
     @staticmethod
@@ -74,6 +77,7 @@ def extract_json() -> str:
             "slice": "catalog",
             "service_name": "catalog",
             "container_port": 8001,
+            "branch": "devin/catalog",
             "routes": ["/api/catalog/products"],
             "parity_match_rate": 1.0,
             "unresolved_differences": [],
@@ -203,3 +207,102 @@ def test_cloud_agent_factory_wires_notion_mcp(monkeypatch: pytest.MonkeyPatch) -
     options = calls[0]
     assert options.mcp_servers["notion"].env["NOTION_TOKEN"] == "token"
     assert options.cloud.env_vars["NOTION_TOKEN"] == "token"
+
+
+def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], Path | None]] = []
+    verify_dir = tmp_path / ".verify" / "catalog"
+
+    def runner(args: list[str], *, cwd: Path, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append((args, cwd))
+        if args[:3] == ["git", "worktree", "add"]:
+            verify_dir.mkdir(parents=True)
+        if args[:4] == ["docker", "compose", "-p", "verify-catalog"] and "parity" in args:
+            report_dir = cwd / "parity"
+            report_dir.mkdir(exist_ok=True)
+            (report_dir / "catalog.json").write_text(
+                json.dumps({"slice": "catalog", "match_rate": 0.75}), encoding="utf-8"
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    gate = ParityGate(tmp_path, runner=runner)
+    report = gate.measure(
+        "catalog",
+        branch="devin/catalog",
+        service_name="catalog",
+        container_port=8001,
+    )
+    commands = [args for args, _cwd in calls]
+    assert commands[0] == ["git", "fetch", "origin", "devin/catalog"]
+    assert commands[1][:3] == ["git", "worktree", "add"]
+    assert commands[2] == ["docker", "compose", "-p", "verify-catalog", "up", "-d", "--build"]
+    assert commands[3][0:7] == [
+        "docker",
+        "compose",
+        "-p",
+        "verify-catalog",
+        "--profile",
+        "tools",
+        "run",
+    ]
+    assert "CANDIDATE_URL=http://catalog:8001" in commands[3]
+    assert "--threshold" in commands[3]
+    assert commands[3][commands[3].index("--threshold") + 1] == "0.99"
+    assert commands[-1] == ["docker", "compose", "-p", "verify-catalog", "down", "-v"]
+    assert report["match_rate"] == 0.75
+    assert json.loads(gate.report_path("catalog").read_text())["match_rate"] == 0.75
+
+
+def test_parity_gate_failed_measurement_returns_zero_rate(tmp_path: Path) -> None:
+    def runner(args: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="compose unavailable")
+
+    gate = ParityGate(tmp_path, runner=runner)
+    report = gate.measure(
+        "catalog",
+        branch="devin/catalog",
+        service_name="catalog",
+        container_port=8001,
+    )
+    assert gate.rate(report) == 0.0
+    assert "measurement_error" in report
+
+
+def test_happy_path_persists_agent_metadata_and_streams(tmp_path: Path) -> None:
+    agent = FakeAgent("agent-1", [extract_json(), cutover_json()])
+    fleet = FakeFleet(agent)
+    state_path = tmp_path / "state.json"
+    migration = Migration(
+        repo=Path(__file__).parents[1],
+        fleet=fleet,
+        gate=FakeGate(tmp_path),
+        state=State(),
+        state_path=state_path,
+        out_dir=tmp_path / "out",
+    )
+    assert migration.run(["catalog"]) == 0
+    state = State.load(state_path).slice("catalog")
+    assert state.branch == "devin/catalog"
+    assert state.service_name == "catalog"
+    assert state.container_port == 8001
+    assert state.status == "done"
+    assert len(state.run_ids) == 2
+    assert (tmp_path / "out/catalog/extract.jsonl").exists()
+    assert (tmp_path / "out/catalog/cutover_plan.json").exists()
+
+
+def test_sdk_api_errors_are_not_retried_via_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeAgent:
+        @staticmethod
+        def create(**_kwargs):
+            raise RuntimeError("unauthorized")
+
+    fake_sdk = SimpleNamespace(
+        Agent=FakeAgent,
+        CloudAgentOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+        CloudRepository=lambda **kwargs: SimpleNamespace(**kwargs),
+    )
+    monkeypatch.setitem(sys.modules, "cursor_sdk", fake_sdk)
+    fleet = CloudFleet("https://example.test/repo", "secret")
+    with pytest.raises(RuntimeError, match="unauthorized"):
+        fleet.create_agent("catalog", 1)

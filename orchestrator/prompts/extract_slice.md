@@ -34,6 +34,10 @@ $legacy_routes
 
 ## Before you answer
 
+Push your work: your branch is what the migration is verified against. The orchestrator re-runs the
+parity harness itself, from your branch, on its own machine — your reported rate is a claim, not the
+gate. Make sure everything needed to build and run your service is committed.
+
 Read the legacy code for these routes first and derive the contract from what it actually does —
 not from what the route names suggest. Then build the image, bring the stack up, and run the parity
 harness with `$parity_cmd`. Iterate until it passes or until the only differences left are ones you
@@ -44,6 +48,7 @@ can explain. A slice that has never been run against the monolith is not finishe
 Reply with strict JSON and nothing else:
 
 {"slice": "$slice", "service_name": "<compose service name>", "container_port": $container_port,
+ "branch": "<the git branch your work is pushed on>",
  "routes": ["<path pattern>", ...], "parity_match_rate": <float 0..1>,
  "unresolved_differences": [{"route": "<path>", "why": "<one line>"}],
  "notes": ["<legacy quirk you reproduced deliberately>", ...]}

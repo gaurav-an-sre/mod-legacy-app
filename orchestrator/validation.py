@@ -79,7 +79,10 @@ def validate_extract(payload: Any, slice_name: str) -> dict[str, Any]:
     data = _mapping(payload)
     _slice_matches(data, slice_name)
     _string(data, "service_name")
-    _integer(data, "container_port")
+    _string(data, "branch")
+    container_port = _integer(data, "container_port")
+    if not 1 <= container_port <= 65535:
+        raise ContractError("container_port must be between 1 and 65535")
     _string_list(data, "routes")
     _rate(data, "parity_match_rate")
     _object_list(data, "unresolved_differences", ("route", "why"))
@@ -90,6 +93,7 @@ def validate_extract(payload: Any, slice_name: str) -> dict[str, Any]:
 def validate_parity_fix(payload: Any, slice_name: str) -> dict[str, Any]:
     data = _mapping(payload)
     _slice_matches(data, slice_name)
+    _string(data, "branch")
     _rate(data, "parity_match_rate")
     _object_list(data, "fixed", ("route", "cause", "fix"))
     _object_list(data, "benign", ("route", "why"))

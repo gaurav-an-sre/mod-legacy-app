@@ -48,7 +48,6 @@ class Migration:
     notion_writer: StatusWriter = field(default_factory=DisabledStatusWriter)
     notion_token: str | None = None
     notion_parent_page_id: str = ""
-    notion_runtime: str = "cloud"
     max_parity_attempts: int = MAX_PARITY_ATTEMPTS
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -88,12 +87,16 @@ class Migration:
         while not st.finished:
             phase = st.phase
             if phase == "extract":
-                self._phase(agent, st, "extract")
+                payload = self._phase(agent, st, "extract")
+                st.branch = str(payload["branch"])
+                st.service_name = str(payload["service_name"])
+                st.container_port = int(payload["container_port"])
                 st.phase = "gate"
             elif phase == "gate":
                 self._gate(st)
             elif phase == "parity_fix":
-                self._phase(agent, st, "parity_fix")
+                payload = self._phase(agent, st, "parity_fix")
+                st.branch = str(payload["branch"])
                 st.parity_attempts += 1
                 st.phase = "gate"
             elif phase == "cutover_plan":
@@ -102,13 +105,11 @@ class Migration:
             elif phase == "notion_status":
                 if self.notion_mode == "mcp":
                     try:
-                        payload = self._phase(
-                            self._notion_agent(agent, slice_name), st, "notion_status"
-                        )
+                        payload = self._phase(agent, st, "notion_status")
                     except PhaseFailure:
                         raise
                     except Exception as exc:
-                        if self.notion_runtime != "cloud" or not self.notion_token:
+                        if not self.notion_token:
                             raise
                         print(
                             f"[{slice_name}/notion_status] cloud MCP failed ({exc}); "
@@ -150,12 +151,6 @@ class Migration:
         print(f"[{st.name}] created agent {st.agent_id}", flush=True)
         self._checkpoint(st)
         return agent
-
-    def _notion_agent(self, agent: Any, slice_name: str) -> Any:
-        """Cloud stdio MCP is the expected path; the local runtime is the safety net."""
-        if self.notion_runtime == "cloud" or not self.notion_token:
-            return agent
-        return self.fleet.local_notion_agent(slice_name, notion_mcp_servers(self.notion_token))
 
     def _env_vars(self) -> dict[str, str]:
         if self.notion_mode == "mcp" and self.notion_token:
@@ -205,7 +200,14 @@ class Migration:
         return payload
 
     def _gate(self, st: SliceState) -> None:
-        report = self.gate.measure(st.name)
+        if not st.branch or not st.service_name or st.container_port is None:
+            raise ValueError(f"{st.name} has no extracted branch/service metadata")
+        report = self.gate.measure(
+            st.name,
+            branch=st.branch,
+            service_name=st.service_name,
+            container_port=st.container_port,
+        )
         st.parity_rate = self.gate.rate(report)
         if self.gate.passed(report):
             print(f"[{st.name}] gate passed at {st.parity_rate:.3f}", flush=True)

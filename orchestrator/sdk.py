@@ -52,7 +52,7 @@ class CloudFleet:
         sdk = self._sdk()
         try:
             self.client = sdk.Client(allow_api_key_env_fallback=True)
-        except Exception:
+        except (TypeError, AttributeError, ImportError):
             bridge = sdk.Bridge.launch(workspace=str(self.repo))
             self.client = sdk.Client(bridge.endpoint, allow_api_key_env_fallback=True)
         return self.client
@@ -81,7 +81,7 @@ class CloudFleet:
             }
             try:
                 return sdk.Agent.create(**create_args)
-            except Exception:
+            except (TypeError, AttributeError, ImportError):
                 return self._resolve_client().create_agent(**create_args)
         options = sdk.AgentOptions(
             model=self.model,
@@ -92,21 +92,21 @@ class CloudFleet:
         )
         try:
             return sdk.Agent.create(options=options)
-        except Exception:
+        except (TypeError, AttributeError, ImportError):
             return self._resolve_client().create_agent(options=options)
 
     def resume_agent(self, agent_id: str) -> Any:
         sdk = self._sdk()
         try:
             return sdk.Agent.resume(agent_id)
-        except Exception:
+        except (TypeError, AttributeError, ImportError):
             return self._resolve_client().resume_agent(agent_id)
 
     def list_agents(self) -> list[Any]:
         sdk = self._sdk()
         try:
             listing = sdk.Agent.list()
-        except Exception:
+        except (TypeError, AttributeError, ImportError):
             listing = self._resolve_client().list_agents()
         agents = list(getattr(listing, "items", listing) or [])
         return [

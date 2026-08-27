@@ -18,12 +18,15 @@ them. Read the report first — each entry records the request, the legacy respo
    without a test is how the same divergence comes back at 50% traffic.
 4. Rebuild the image, bring the stack up, and re-run `$parity_cmd`. Report the rate you actually
    measured on the last run, not the rate you expect.
+5. Commit and push everything. The orchestrator re-runs the harness from your branch on its own
+   machine, and that measurement — not the rate you report — is what moves traffic.
 
 ## Reply
 
 Reply with strict JSON and nothing else:
 
 {"slice": "$slice", "parity_match_rate": <float 0..1>,
+ "branch": "<the git branch your work is pushed on>",
  "fixed": [{"route": "<path>", "cause": "<why the two differed>", "fix": "<what you changed>"}],
  "benign": [{"route": "<path>", "why": "<why this difference cannot be eliminated>"}],
  "still_failing": [{"route": "<path>", "why": "<one line>"}]}

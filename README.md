@@ -120,8 +120,11 @@ The `orchestrator/` package is the Cursor SDK layer for the demo. It creates one
 long-lived cloud Agent per slice, runs the authored `extract`, `parity_fix`, and
 `cutover_plan` prompts in sequence, measures parity with `tools/parity.py`, and
 persists resumable state plus every streamed Run event under `out/<slice>/`.
-Slices run concurrently and each slice owns its own cloud PR. The agent never
-moves traffic weights: `tools/cutover.py` remains the only controller for that.
+The comparator fetches each agent-reported branch, builds it in an isolated
+verification worktree and Compose project, and copies the resulting report back
+to the main checkout. Slices run concurrently and each slice owns its own cloud
+PR. The agent never moves traffic weights: `tools/cutover.py` remains the only
+controller for that.
 
 ```sh
 CURSOR_API_KEY=... python -m orchestrator migrate \
