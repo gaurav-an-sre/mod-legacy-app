@@ -1,0 +1,94 @@
+worker_processes 1;
+error_log /var/log/nginx/error.log notice;
+pid /tmp/nginx.pid;
+
+events { worker_connections 1024; }
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    log_format migration '$time_iso8601 route=$migration_route backend=$migration_backend status=$status latency_ms=$request_time';
+    access_log /var/log/nginx/access.log migration;
+    map $http_x_request_id $request_key {
+        default $http_x_request_id;
+        "" $request_id;
+    }
+    upstream legacy_upstream { server legacy:80; }
+    upstream console_upstream { server console:8000; }
+    upstream candidate_catalog_upstream { server fake-candidate:8000; }
+    # Route and backend are derived with map, never with "set": a mirror
+    # subrequest shares the parent request's variable slots, so "set" in the
+    # shadow location would overwrite the values before the main request is
+    # logged, and the cutover gate reads that log.
+    map $uri $migration_route {
+        default "other";
+{% for slice_name, slice in slices.items() %}
+{% for route in slice.routes %}
+        {{ route }} "{{ slice_name }}";
+{% endfor %}
+{% endfor %}
+    }
+    map $migration_route $migration_backend {
+        default "legacy";
+{% for slice_name, slice in slices.items() %}
+{% if slice.upstream %}
+        {{ slice_name }} ${{ slice_name }}_backend;
+{% endif %}
+{% endfor %}
+    }
+{% for slice_name, slice in slices.items() %}
+{% if slice.upstream %}
+    split_clients $request_key ${{ slice_name }}_backend {
+{% if slice.weight <= 0 %}
+        * legacy;
+{% elif slice.weight >= 100 %}
+        * candidate;
+{% else %}
+        {{ slice.weight }}% candidate;
+        * legacy;
+{% endif %}
+    }
+    map ${{ slice_name }}_backend ${{ slice_name }}_upstream {
+        legacy http://legacy_upstream;
+        candidate http://{{ slice.upstream }}_upstream;
+    }
+{% endif %}
+{% endfor %}
+    server {
+        listen 80;
+        location = /_migration {
+            proxy_pass http://console_upstream;
+        }
+        location = /_migration/ {
+            proxy_pass http://console_upstream/;
+        }
+{% for slice_name, slice in slices.items() %}
+{% for route in slice.routes %}
+        location = {{ route }} {
+{% if slice.upstream %}
+            mirror /_shadow_{{ slice_name }};
+            proxy_pass ${{ slice_name }}_upstream$request_uri;
+{% else %}
+            proxy_pass http://legacy_upstream;
+{% endif %}
+            proxy_set_header Host $host;
+            proxy_set_header X-Migration-Backend $migration_backend;
+        }
+{% endfor %}
+{% endfor %}
+{% for slice_name, slice in slices.items() %}
+{% if slice.upstream %}
+        location = /_shadow_{{ slice_name }} {
+            internal;
+            proxy_pass http://{{ slice.upstream }}_upstream$request_uri;
+            proxy_set_header X-Migration-Mirror 1;
+            access_log off;
+        }
+{% endif %}
+{% endfor %}
+        location / {
+            proxy_pass http://legacy_upstream;
+            proxy_set_header Host $host;
+        }
+    }
+}

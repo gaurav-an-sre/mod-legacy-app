@@ -1,0 +1,8 @@
+ignore_json_keys:
+  - id
+  - order_id
+  - created_at
+  - timestamp
+ignore_headers:
+  - set-cookie
+  - date

@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "pre_tool_use": [
+      {
+        "matcher": "Write|Edit|Delete|Shell",
+        "command": "python3 .cursor/hooks/deny_evidence_writes.py"
+      }
+    ]
+  }
+}

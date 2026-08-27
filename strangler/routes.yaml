@@ -1,0 +1,23 @@
+slices:
+  catalog:
+    weight: 0
+    upstream: candidate_catalog
+    routes:
+    - /api/catalog/products
+    - /api/catalog/product
+  orders:
+    weight: 0
+    upstream: null
+    routes:
+    - /api/orders/cart
+    - /api/orders/checkout
+  users:
+    weight: 0
+    upstream: null
+    routes:
+    - /api/users/login
+  reports:
+    weight: 0
+    upstream: null
+    routes:
+    - /api/reports/top-products
