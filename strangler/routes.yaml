@@ -18,8 +18,8 @@ slices:
   users:
     weight: 0
     mirror: false
-    upstream: null
-    candidate: null
+    upstream: candidate_users
+    candidate: users:8003
     routes:
     - /api/users/login
   reports:
