@@ -9,7 +9,7 @@ import pytest
 import console.main as console_main
 from strangler.render import render_routes
 from tools.cutover import _error_rates, promote, rollback
-from tools.parity import _normalize
+from tools.parity import _normalize, resolve_candidate_url
 
 ROOT = Path(__file__).parents[1]
 
@@ -68,6 +68,39 @@ def test_error_rates_ignore_samples_outside_soak_window(tmp_path: Path) -> None:
 def test_normalization_removes_volatile_keys() -> None:
     value = {"id": 1, "created_at": "today", "nested": {"name": "kept"}}
     assert _normalize(value, {"id", "created_at"}) == {"nested": {"name": "kept"}}
+
+
+def test_resolve_candidate_url_prefers_slice_config_over_compose_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  reports:\n"
+        "    candidate: candidate-reports:8004\n"
+        "    routes: [/api/reports/top-products]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CANDIDATE_URL", "http://fake-candidate:8000")
+    assert (
+        resolve_candidate_url("reports", routes_path=routes)
+        == "http://candidate-reports:8004"
+    )
+
+
+def test_resolve_candidate_url_falls_back_to_env_without_slice_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  orders:\n"
+        "    candidate: null\n"
+        "    routes: [/api/orders/cart]\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CANDIDATE_URL", "http://fake-candidate:8000")
+    assert resolve_candidate_url("orders", routes_path=routes) == "http://fake-candidate:8000"
 
 
 def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> None:
