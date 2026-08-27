@@ -53,6 +53,11 @@ make promote
 make rollback
 ```
 
+`nginx -s reload` is graceful: for roughly the first 50 ms after rollback
+returns, a few in-flight requests may still be handled by the previous worker.
+In testing, about 4 of 60 requests in that initial window still reached the
+candidate (all returned 200); traffic then settled at 100% legacy.
+
 `tools/parity.py` replays `traffic/requests.yaml`, compares status and normalized
 JSON/text bodies, and writes a self-explanatory result for every request to
 `parity/<slice>.json`. Normalization (`traffic/normalize.yaml`) drops only

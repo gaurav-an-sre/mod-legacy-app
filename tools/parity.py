@@ -99,6 +99,7 @@ def compare_slice(
     report = {
         "slice": slice_name,
         "threshold": threshold,
+        "candidate_url": candidate_url,
         "match_rate": matches / len(requests) if requests else 1.0,
         "matched": matches,
         "total": len(requests),

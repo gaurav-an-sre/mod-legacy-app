@@ -3,6 +3,7 @@ slices:
     weight: 0
     mirror: true
     upstream: candidate_catalog
+    candidate: fake-candidate:8000
     routes:
     - /api/catalog/products
     - /api/catalog/product
@@ -10,6 +11,7 @@ slices:
     weight: 0
     mirror: false
     upstream: null
+    candidate: null
     routes:
     - /api/orders/cart
     - /api/orders/checkout
@@ -17,11 +19,13 @@ slices:
     weight: 0
     mirror: false
     upstream: null
+    candidate: null
     routes:
     - /api/users/login
   reports:
     weight: 0
     mirror: true
     upstream: null
+    candidate: null
     routes:
     - /api/reports/top-products

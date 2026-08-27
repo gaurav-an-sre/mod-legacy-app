@@ -48,11 +48,12 @@ def _state() -> list[dict[str, Any]]:
     for name, config in routes["slices"].items():
         report_path = ROOT / "parity" / f"{name}.json"
         report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+        upstream = config.get("upstream")
         values.append(
             {
                 "name": name,
-                "weight": int(config.get("weight", 0)),
-                "upstream": config.get("upstream") or "legacy only",
+                "weight": int(config.get("weight", 0)) if upstream else 0,
+                "upstream": upstream or "legacy only",
                 "rate": report.get("match_rate"),
                 "timestamp": _report_time(report_path),
                 "counts": counts.get(name, {"legacy": 0, "candidate": 0}),

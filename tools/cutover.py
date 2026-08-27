@@ -10,6 +10,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -69,10 +70,40 @@ def promote(
     config = _load_routes(routes_path)
     if slice_name not in config["slices"]:
         raise SystemExit(f"unknown slice: {slice_name}")
+    slice_config = config["slices"][slice_name]
+    upstream = slice_config.get("upstream")
+    if not upstream:
+        raise SystemExit(f"refusing promotion: slice {slice_name} has no candidate upstream")
     parity_path = parity_path or Path("parity") / f"{slice_name}.json"
     if not parity_path.exists():
         raise SystemExit(f"refusing promotion: missing parity report {parity_path}")
     report = json.loads(parity_path.read_text(encoding="utf-8"))
+    candidate_url = report.get("candidate_url")
+    expected_candidate = slice_config.get("candidate")
+    try:
+        candidate_address = (
+            urlparse(
+                expected_candidate if "://" in expected_candidate else f"//{expected_candidate}"
+            )
+            if isinstance(expected_candidate, str) and expected_candidate
+            else None
+        )
+        candidate_uri = urlparse(candidate_url) if isinstance(candidate_url, str) else None
+        candidate_host = candidate_uri.hostname if candidate_uri else None
+        candidate_port = candidate_uri.port if candidate_uri else None
+        candidate_matches = (
+            candidate_address is not None
+            and candidate_uri is not None
+            and candidate_host == candidate_address.hostname
+            and (candidate_address.port is None or candidate_port == candidate_address.port)
+        )
+    except ValueError:
+        candidate_matches = False
+    if not candidate_matches:
+        raise SystemExit(
+            f"refusing promotion: parity candidate URL {candidate_url or 'missing'} "
+            f"does not match configured candidate {expected_candidate or 'missing'}"
+        )
     rate = float(report.get("match_rate", 0))
     if rate < threshold:
         raise SystemExit(
