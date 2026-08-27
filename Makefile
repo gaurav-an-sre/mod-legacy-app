@@ -3,6 +3,12 @@ PYTHON := .venv/bin/python
 COMPOSE := docker compose
 SLICE ?= catalog
 
+ifeq ($(SLICE),orders)
+CANDIDATE_URL ?= http://orders:8002
+else
+CANDIDATE_URL ?= http://fake-candidate:8000
+endif
+
 .PHONY: up render seed parity promote rollback down test lint
 
 render:
@@ -15,7 +21,7 @@ seed:
 	$(COMPOSE) exec -T db mysql -ulegacy -plegacy legacy_shop < db/seed.sql
 
 parity:
-	$(COMPOSE) --profile tools run --rm parity python tools/parity.py --slice $(SLICE)
+	$(COMPOSE) --profile tools run --rm -e CANDIDATE_URL=$(CANDIDATE_URL) parity python tools/parity.py --slice $(SLICE)
 
 promote:
 	$(PYTHON) tools/cutover.py promote --slice $(SLICE)
