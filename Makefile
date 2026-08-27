@@ -15,7 +15,8 @@ seed:
 	$(COMPOSE) exec -T db mysql -ulegacy -plegacy legacy_shop < db/seed.sql
 
 parity:
-	$(COMPOSE) --profile tools run --rm parity python tools/parity.py --slice $(SLICE)
+	HOST_UID=$(shell id -u) HOST_GID=$(shell id -g) \
+		$(COMPOSE) --profile tools run --rm parity python tools/parity.py --slice $(SLICE)
 
 promote:
 	$(PYTHON) tools/cutover.py promote --slice $(SLICE)

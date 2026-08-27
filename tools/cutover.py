@@ -29,7 +29,7 @@ def _reload(repo: Path) -> None:
     )
 
 
-def _error_rates(log_path: Path, soak_seconds: int = 300) -> tuple[float, float]:
+def _error_rates(log_path: Path, slice_name: str, soak_seconds: int = 300) -> tuple[float, float]:
     """Legacy and candidate 5xx rates over the trailing soak window."""
     counts = {"legacy": [0, 0], "candidate": [0, 0]}
     if not log_path.exists():
@@ -46,6 +46,8 @@ def _error_rates(log_path: Path, soak_seconds: int = 300) -> tuple[float, float]
         if logged_at < cutoff:
             continue
         fields = dict(re.findall(r"(\w+)=([^\s]+)", line))
+        if fields.get("route") != slice_name:
+            continue
         backend = fields.get("backend")
         if backend not in counts:
             continue
@@ -109,7 +111,9 @@ def promote(
         raise SystemExit(
             f"refusing promotion: parity match rate {rate:.3f} is below threshold {threshold:.3f}"
         )
-    legacy_errors, candidate_errors = _error_rates(log_path, soak_seconds=soak_seconds)
+    legacy_errors, candidate_errors = _error_rates(
+        log_path, slice_name=slice_name, soak_seconds=soak_seconds
+    )
     if candidate_errors > legacy_errors:
         raise SystemExit(
             "refusing promotion: candidate error rate "

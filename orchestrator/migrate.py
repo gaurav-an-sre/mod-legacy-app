@@ -17,7 +17,7 @@ from .config import (
     prompt_variables,
     slice_weight,
 )
-from .gate import ParityGate
+from .gate import MeasurementFailure, ParityGate
 from .notion import DisabledStatusWriter, StatusWriter
 from .sdk import notion_mcp_servers
 from .state import SliceState, State
@@ -208,6 +208,8 @@ class Migration:
             service_name=st.service_name,
             container_port=st.container_port,
         )
+        if report.get("measurement_error"):
+            raise MeasurementFailure(f"{st.name} measurement failed: {report['measurement_error']}")
         st.parity_rate = self.gate.rate(report)
         if self.gate.passed(report):
             print(f"[{st.name}] gate passed at {st.parity_rate:.3f}", flush=True)

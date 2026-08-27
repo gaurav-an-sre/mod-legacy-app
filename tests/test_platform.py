@@ -61,8 +61,8 @@ def test_error_rates_ignore_samples_outside_soak_window(tmp_path: Path) -> None:
         f"{recent} route=catalog backend=legacy status=500 latency_ms=0.01\n",
         encoding="utf-8",
     )
-    assert _error_rates(log, soak_seconds=300) == (1.0, 0.0)
-    assert _error_rates(log, soak_seconds=10**9) == (1.0, 0.5)
+    assert _error_rates(log, "catalog", soak_seconds=300) == (1.0, 0.0)
+    assert _error_rates(log, "catalog", soak_seconds=10**9) == (1.0, 0.5)
 
 
 def test_normalization_removes_volatile_keys() -> None:
@@ -78,7 +78,87 @@ def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> No
         "2024-01-01T00:00:02+00:00 route=catalog backend=candidate status=200 latency_ms=0.01\n",
         encoding="utf-8",
     )
-    assert _error_rates(log, soak_seconds=10**9) == (0.5, 0.0)
+    assert _error_rates(log, "catalog", soak_seconds=10**9) == (0.5, 0.0)
+
+
+def test_promote_ignores_other_slice_candidate_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  catalog:\n"
+        "    weight: 0\n"
+        "    upstream: candidate\n"
+        "    candidate: candidate:8001\n"
+        "    routes: [/api/catalog/products]\n"
+        "  orders:\n"
+        "    weight: 0\n"
+        "    upstream: orders\n"
+        "    candidate: orders:8001\n"
+        "    routes: [/api/orders/cart]\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "catalog.json"
+    report.write_text(
+        json.dumps({"candidate_url": "http://candidate:8001", "match_rate": 1.0}),
+        encoding="utf-8",
+    )
+    log = tmp_path / "access.log"
+    log.write_text(
+        "2024-01-01T00:00:00+00:00 route=orders backend=candidate status=500 latency_ms=0.01\n"
+        "2024-01-01T00:00:01+00:00 route=catalog backend=candidate status=200 latency_ms=0.01\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("tools.cutover.subprocess.run", lambda *_args, **_kwargs: None)
+
+    assert (
+        promote(
+            "catalog",
+            routes_path=routes,
+            parity_path=report,
+            log_path=log,
+            soak_seconds=10**9,
+            repo=tmp_path,
+        )
+        == 5
+    )
+
+
+def test_promote_rejects_candidate_errors_for_slice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        "slices:\n"
+        "  catalog:\n"
+        "    weight: 0\n"
+        "    upstream: candidate\n"
+        "    candidate: candidate:8001\n"
+        "    routes: [/api/catalog/products]\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "catalog.json"
+    report.write_text(
+        json.dumps({"candidate_url": "http://candidate:8001", "match_rate": 1.0}),
+        encoding="utf-8",
+    )
+    log = tmp_path / "access.log"
+    log.write_text(
+        "2024-01-01T00:00:00+00:00 route=catalog backend=candidate status=500 latency_ms=0.01\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("tools.cutover.subprocess.run", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(SystemExit, match="candidate error rate"):
+        promote(
+            "catalog",
+            routes_path=routes,
+            parity_path=report,
+            log_path=log,
+            soak_seconds=10**9,
+            repo=tmp_path,
+        )
 
 
 def test_promote_rejects_low_parity_without_mutating_routes(

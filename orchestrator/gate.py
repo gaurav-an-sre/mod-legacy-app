@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -45,13 +46,20 @@ class ParityGate:
     def report_path(self, slice_name: str) -> Path:
         return self.repo / "parity" / f"{slice_name}.json"
 
-    def _run(self, args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        args: list[str],
+        *,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         return self.runner(
             args,
             cwd=cwd,
             check=False,
             capture_output=True,
             text=True,
+            env=env,
         )
 
     def _verify_worktree(self, slice_name: str, branch: str) -> Path:
@@ -144,6 +152,11 @@ class ParityGate:
                     str(self.threshold),
                 ],
                 cwd=verify_dir,
+                env={
+                    **os.environ,
+                    "HOST_UID": str(os.getuid()),
+                    "HOST_GID": str(os.getgid()),
+                },
             )
             if not source.exists():
                 raise MeasurementFailure(f"parity report was not produced: {source}")
@@ -182,4 +195,4 @@ class ParityGate:
             return 0.0
 
     def passed(self, report: dict[str, Any]) -> bool:
-        return self.rate(report) >= self.threshold
+        return "measurement_error" not in report and self.rate(report) >= self.threshold

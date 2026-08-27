@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -220,11 +221,11 @@ def test_cloud_agent_factory_wires_notion_mcp(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -> None:
-    calls: list[tuple[list[str], Path | None]] = []
+    calls: list[tuple[list[str], Path | None, dict[str, str] | None]] = []
     verify_dir = tmp_path / ".verify" / "catalog"
 
     def runner(args: list[str], *, cwd: Path, **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        calls.append((args, cwd))
+        calls.append((args, cwd, _kwargs.get("env")))
         if args[:3] == ["git", "worktree", "add"]:
             verify_dir.mkdir(parents=True)
         if args[:4] == ["docker", "compose", "-p", "verify-catalog"] and "parity" in args:
@@ -242,7 +243,7 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         service_name="catalog",
         container_port=8001,
     )
-    commands = [args for args, _cwd in calls]
+    commands = [args for args, _cwd, _env in calls]
     assert commands[0] == [
         "git",
         "fetch",
@@ -274,6 +275,8 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
     assert "CANDIDATE_URL=http://catalog:8001" in commands[3]
     assert "--threshold" in commands[3]
     assert commands[3][commands[3].index("--threshold") + 1] == "0.99"
+    assert calls[3][2]["HOST_UID"] == str(os.getuid())
+    assert calls[3][2]["HOST_GID"] == str(os.getgid())
     assert commands[-1] == ["docker", "compose", "-p", "verify-catalog", "down", "-v"]
     assert report["match_rate"] == 0.75
     assert json.loads(gate.report_path("catalog").read_text())["match_rate"] == 0.75
@@ -291,7 +294,33 @@ def test_parity_gate_failed_measurement_returns_zero_rate(tmp_path: Path) -> Non
         container_port=8001,
     )
     assert gate.rate(report) == 0.0
+    assert not gate.passed(report)
     assert "measurement_error" in report
+
+
+def test_measurement_error_fails_slice_without_parity_retry(tmp_path: Path) -> None:
+    class MeasurementErrorGate(FakeGate):
+        def measure(self, _slice: str, **_kwargs: Any):
+            return {"match_rate": 0.0, "measurement_error": "permission denied"}
+
+    agent = FakeAgent("agent-1", [extract_json()])
+    state_path = tmp_path / "state.json"
+    migration = Migration(
+        repo=Path(__file__).parents[1],
+        fleet=FakeFleet(agent),
+        gate=MeasurementErrorGate(tmp_path),
+        state=State(),
+        state_path=state_path,
+        out_dir=tmp_path / "out",
+    )
+
+    assert migration.run(["catalog"]) == 1
+
+    state = State.load(state_path).slice("catalog")
+    assert state.status == "failed"
+    assert state.phase == "failed"
+    assert state.parity_attempts == 0
+    assert state.error == "catalog measurement failed: permission denied"
 
 
 def test_parity_gate_rejects_bad_branch_without_invoking_git(tmp_path: Path) -> None:
