@@ -450,8 +450,10 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "origin",
         "refs/heads/devin/catalog:refs/remotes/origin/devin/catalog",
     ]
-    assert commands[1][:3] == ["git", "worktree", "add"]
-    assert commands[2] == [
+    assert commands[1] == ["git", "worktree", "remove", "--force", str(verify_dir)]
+    assert commands[2] == ["git", "worktree", "prune"]
+    assert commands[3][:3] == ["git", "worktree", "add"]
+    assert commands[4] == [
         "docker",
         "compose",
         "-p",
@@ -465,7 +467,7 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "catalog",
     ]
     assert trusted_at_compose_up
-    assert commands[3] == [
+    assert commands[5] == [
         "docker",
         "compose",
         "-p",
@@ -486,7 +488,7 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "--timeout",
         "120",
     ]
-    assert commands[4][0:7] == [
+    assert commands[6][0:7] == [
         "docker",
         "compose",
         "-p",
@@ -495,14 +497,14 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "tools",
         "run",
     ]
-    assert commands[4][commands[4].index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
-    assert "CANDIDATE_URL=http://catalog:8001" in commands[4]
-    assert "--threshold" in commands[4]
-    assert commands[4][commands[4].index("--threshold") + 1] == "0.99"
-    assert calls[3][2]["HOST_UID"] == str(os.getuid())
-    assert calls[3][2]["HOST_GID"] == str(os.getgid())
-    assert calls[4][2]["HOST_UID"] == str(os.getuid())
-    assert calls[4][2]["HOST_GID"] == str(os.getgid())
+    assert commands[6][commands[6].index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
+    assert "CANDIDATE_URL=http://catalog:8001" in commands[6]
+    assert "--threshold" in commands[6]
+    assert commands[6][commands[6].index("--threshold") + 1] == "0.99"
+    assert calls[5][2]["HOST_UID"] == str(os.getuid())
+    assert calls[5][2]["HOST_GID"] == str(os.getgid())
+    assert calls[6][2]["HOST_UID"] == str(os.getuid())
+    assert calls[6][2]["HOST_GID"] == str(os.getgid())
     assert all("seed.sql" not in command for command in commands)
     assert commands[-1] == ["docker", "compose", "-p", "verify-catalog", "down", "-v"]
     assert (verify_dir / "traffic" / "normalize.yaml").read_text(encoding="utf-8") == (

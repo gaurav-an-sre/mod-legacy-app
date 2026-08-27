@@ -86,6 +86,11 @@ class ParityGate:
                 cwd=verify_dir,
             )
         else:
+            self._run(
+                ["git", "worktree", "remove", "--force", str(verify_dir)],
+                cwd=self.repo,
+            )
+            self._run(["git", "worktree", "prune"], cwd=self.repo)
             refreshed = self._run(
                 ["git", "worktree", "add", "--detach", str(verify_dir), ref],
                 cwd=self.repo,
