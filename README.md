@@ -113,3 +113,32 @@ make lint
 The browser pages are intentionally a manual check: after `make up`, visit the
 storefront and migration console, change the candidate mode, run parity and
 promotion commands, and watch the console's weight bar and request counts.
+
+## Cloud migration orchestrator
+
+The `orchestrator/` package is the Cursor SDK layer for the demo. It creates one
+long-lived cloud Agent per slice, runs the authored `extract`, `parity_fix`, and
+`cutover_plan` prompts in sequence, measures parity with `tools/parity.py`, and
+persists resumable state plus every streamed Run event under `out/<slice>/`.
+The comparator fetches each agent-reported branch, builds it in an isolated
+verification worktree and Compose project, and copies the resulting report back
+to the main checkout. Slices run concurrently and each slice owns its own cloud
+PR. The agent never moves traffic weights: `tools/cutover.py` remains the only
+controller for that.
+
+```sh
+CURSOR_API_KEY=... python -m orchestrator migrate \
+  --slices catalog,orders,users,reports --wave-size 4
+python -m orchestrator status
+python -m orchestrator resume --slices catalog,orders,users,reports
+```
+
+`--notion off` is the default. `--notion api` writes deterministic per-phase
+status using the Notion REST API; `--notion mcp` additionally runs the authored
+Notion status phase through the official local stdio server (`npx -y
+@notionhq/notion-mcp-server`). The cloud environment must provide `node`/`npx`;
+`NOTION_TOKEN` is supplied to the cloud agent via its environment and MCP
+configuration. Cloud stdio MCP is the expected path; the implementation retains
+a local-runtime fallback if a future cloud sandbox cannot start it. Both Notion
+modes require `NOTION_TOKEN` and `--notion-parent` (or
+`NOTION_PARENT_PAGE_ID`).

@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 parity/
+out/
+.verify/
 strangler/nginx.conf
 strangler/logs/*
 !strangler/logs/.gitkeep
