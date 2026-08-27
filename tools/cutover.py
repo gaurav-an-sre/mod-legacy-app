@@ -10,6 +10,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -69,10 +70,26 @@ def promote(
     config = _load_routes(routes_path)
     if slice_name not in config["slices"]:
         raise SystemExit(f"unknown slice: {slice_name}")
+    slice_config = config["slices"][slice_name]
+    upstream = slice_config.get("upstream")
+    if not upstream:
+        raise SystemExit(f"refusing promotion: slice {slice_name} has no candidate upstream")
     parity_path = parity_path or Path("parity") / f"{slice_name}.json"
     if not parity_path.exists():
         raise SystemExit(f"refusing promotion: missing parity report {parity_path}")
     report = json.loads(parity_path.read_text(encoding="utf-8"))
+    candidate_url = report.get("candidate_url")
+    try:
+        candidate_host = (
+            urlparse(candidate_url).hostname if isinstance(candidate_url, str) else None
+        )
+    except ValueError:
+        candidate_host = None
+    if candidate_host != upstream:
+        raise SystemExit(
+            f"refusing promotion: parity candidate host {candidate_host or 'missing'} "
+            f"does not match configured upstream {upstream}"
+        )
     rate = float(report.get("match_rate", 0))
     if rate < threshold:
         raise SystemExit(
