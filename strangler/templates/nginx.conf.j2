@@ -15,7 +15,11 @@ http {
     }
     upstream legacy_upstream { server legacy:80; }
     upstream console_upstream { server console:8000; }
-    upstream candidate_catalog_upstream { server fake-candidate:8000; }
+{% for slice_name, slice in slices.items() %}
+{% if slice.upstream and slice.candidate %}
+    upstream {{ slice.upstream }}_upstream { server {{ slice.candidate }}; }
+{% endif %}
+{% endfor %}
     # Route and backend are derived with map, never with "set": a mirror
     # subrequest shares the parent request's variable slots, so "set" in the
     # shadow location would overwrite the values before the main request is

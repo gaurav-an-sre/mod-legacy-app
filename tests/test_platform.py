@@ -20,6 +20,7 @@ def test_routes_render_weighted_backend_and_mirror(tmp_path: Path) -> None:
     rendered = output.read_text(encoding="utf-8")
     assert "split_clients" in rendered
     assert "mirror /_shadow_catalog" in rendered
+    assert "upstream candidate_catalog_upstream { server fake-candidate:8000; }" in rendered
     assert "backend=$migration_backend" in rendered
     assert "0% candidate" not in rendered
 
@@ -32,11 +33,13 @@ def test_non_idempotent_slice_is_not_mirrored(tmp_path: Path) -> None:
         "    weight: 0\n"
         "    mirror: true\n"
         "    upstream: candidate_catalog\n"
+        "    candidate: candidate_catalog:8001\n"
         "    routes: [/api/catalog/products]\n"
         "  orders:\n"
         "    weight: 0\n"
         "    mirror: false\n"
         "    upstream: candidate_orders\n"
+        "    candidate: candidate_orders:8001\n"
         "    routes: [/api/orders/checkout]\n",
         encoding="utf-8",
     )
@@ -88,6 +91,7 @@ def test_promote_rejects_low_parity_without_mutating_routes(
         "    weight: 0\n"
         "    mirror: true\n"
         "    upstream: candidate\n"
+        "    candidate: candidate:8001\n"
         "    routes: [/api/catalog/products]\n",
         encoding="utf-8",
     )
@@ -109,6 +113,7 @@ def test_promote_rejects_slice_without_upstream_before_parity(tmp_path: Path) ->
         "  reports:\n"
         "    weight: 0\n"
         "    upstream: null\n"
+        "    candidate: null\n"
         "    routes: [/api/reports/top-products]\n",
         encoding="utf-8",
     )
@@ -128,6 +133,7 @@ def test_promote_rejects_parity_from_wrong_candidate(tmp_path: Path) -> None:
         "  catalog:\n"
         "    weight: 0\n"
         "    upstream: candidate\n"
+        "    candidate: candidate:8001\n"
         "    routes: [/api/catalog/products]\n",
         encoding="utf-8",
     )
@@ -136,7 +142,7 @@ def test_promote_rejects_parity_from_wrong_candidate(tmp_path: Path) -> None:
         json.dumps({"candidate_url": "http://other:8001", "match_rate": 1.0}),
         encoding="utf-8",
     )
-    with pytest.raises(SystemExit, match="does not match configured upstream"):
+    with pytest.raises(SystemExit, match="does not match configured candidate"):
         promote("catalog", routes_path=routes, parity_path=report, repo=tmp_path)
 
 
@@ -149,6 +155,7 @@ def test_promote_allows_matching_catalog_candidate(
         "  catalog:\n"
         "    weight: 0\n"
         "    upstream: candidate\n"
+        "    candidate: candidate:8001\n"
         "    routes: [/api/catalog/products]\n",
         encoding="utf-8",
     )
@@ -169,6 +176,32 @@ def test_promote_allows_matching_catalog_candidate(
         == 5
     )
     assert "weight: 5" in routes.read_text(encoding="utf-8")
+
+
+def test_promote_allows_real_catalog_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text(
+        (ROOT / "strangler" / "routes.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    report = tmp_path / "catalog.json"
+    report.write_text(
+        json.dumps({"candidate_url": "http://fake-candidate:8000", "match_rate": 1.0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("tools.cutover.subprocess.run", lambda *_args, **_kwargs: None)
+    assert (
+        promote(
+            "catalog",
+            routes_path=routes,
+            parity_path=report,
+            log_path=tmp_path / "access.log",
+            repo=tmp_path,
+        )
+        == 5
+    )
 
 
 def test_rollback_allows_slice_without_upstream(
