@@ -328,8 +328,10 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "origin",
         "refs/heads/devin/catalog:refs/remotes/origin/devin/catalog",
     ]
-    assert commands[1][:3] == ["git", "worktree", "add"]
-    assert commands[2] == [
+    assert commands[1] == ["git", "worktree", "remove", "--force", str(verify_dir)]
+    assert commands[2] == ["git", "worktree", "prune"]
+    assert commands[3][:3] == ["git", "worktree", "add"]
+    assert commands[4] == [
         "docker",
         "compose",
         "-p",
@@ -341,7 +343,7 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "legacy",
         "catalog",
     ]
-    assert commands[3][0:7] == [
+    assert commands[5][0:7] == [
         "docker",
         "compose",
         "-p",
@@ -350,11 +352,11 @@ def test_parity_gate_measures_agent_worktree_and_copies_report(tmp_path: Path) -
         "tools",
         "run",
     ]
-    assert "CANDIDATE_URL=http://catalog:8001" in commands[3]
-    assert "--threshold" in commands[3]
-    assert commands[3][commands[3].index("--threshold") + 1] == "0.99"
-    assert calls[3][2]["HOST_UID"] == str(os.getuid())
-    assert calls[3][2]["HOST_GID"] == str(os.getgid())
+    assert "CANDIDATE_URL=http://catalog:8001" in commands[5]
+    assert "--threshold" in commands[5]
+    assert commands[5][commands[5].index("--threshold") + 1] == "0.99"
+    assert calls[5][2]["HOST_UID"] == str(os.getuid())
+    assert calls[5][2]["HOST_GID"] == str(os.getgid())
     assert commands[-1] == ["docker", "compose", "-p", "verify-catalog", "down", "-v"]
     assert report["match_rate"] == 0.75
     assert json.loads(gate.report_path("catalog").read_text())["match_rate"] == 0.75
