@@ -32,6 +32,14 @@ services:
     environment:
       FAKE_DIVERGE: "${FAKE_DIVERGE:-1}"
 
+  catalog:
+    build: ./services/catalog
+    environment:
+      MYSQL_DSN: mysql://legacy:legacy@db:3306/legacy_shop
+    depends_on:
+      db:
+        condition: service_healthy
+
   console:
     build:
       context: .
@@ -44,6 +52,7 @@ services:
     depends_on:
       - legacy
       - fake-candidate
+      - catalog
       - console
     ports:
       - "8080:80"
@@ -58,7 +67,7 @@ services:
     profiles: ["tools"]
     environment:
       LEGACY_URL: http://legacy
-      CANDIDATE_URL: http://fake-candidate:8000
+      CANDIDATE_URL: http://catalog:8001
     volumes:
       - .:/workspace
     working_dir: /workspace
