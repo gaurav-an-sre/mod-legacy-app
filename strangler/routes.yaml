@@ -25,7 +25,7 @@ slices:
   reports:
     weight: 0
     mirror: true
-    upstream: null
-    candidate: null
+    upstream: candidate_reports
+    candidate: candidate-reports:8004
     routes:
     - /api/reports/top-products
