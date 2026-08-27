@@ -11,6 +11,7 @@ from orchestrator.gate import ParityGate
 from strangler.render import render_routes
 from tools.cutover import _error_rates, promote, rollback
 from tools.parity import _normalize, compare_slice
+from tools.wait_for_legacy import wait_for_legacy
 
 ROOT = Path(__file__).parents[1]
 
@@ -216,6 +217,37 @@ def test_parity_ignores_error_markers_in_json_legacy_body(
     )
     assert "measurement_error" not in report
     assert report["match_rate"] == 1.0
+
+
+def test_wait_for_legacy_retries_php_error_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests = tmp_path / "requests.yaml"
+    requests.write_text("catalog:\n  - method: GET\n    path: /health\n", encoding="utf-8")
+
+    class FakeClient:
+        def __init__(self, responses: list[FakeParityResponse]) -> None:
+            self.responses = responses
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self, _url: str) -> FakeParityResponse:
+            return self.responses.pop(0)
+
+    client = FakeClient(
+        [
+            FakeParityResponse(200, "<b>Fatal error</b>: mysqli_sql_exception"),
+            FakeParityResponse(200, "healthy"),
+        ]
+    )
+    monkeypatch.setattr("tools.wait_for_legacy.httpx.Client", lambda **_kwargs: client)
+    monkeypatch.setattr("tools.wait_for_legacy.time.sleep", lambda _seconds: None)
+
+    wait_for_legacy("catalog", requests_path=requests, legacy_url="http://legacy", interval=0)
 
 
 def test_error_rates_reads_legacy_and_candidate_access_log(tmp_path: Path) -> None:

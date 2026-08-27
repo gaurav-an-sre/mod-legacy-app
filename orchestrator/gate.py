@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import subprocess
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +37,7 @@ def _validate_branch(branch: str) -> None:
 
 @dataclass
 class ParityGate:
-    """Builds the agent branch in isolation and runs the existing parity harness."""
+    """Builds the agent branch in isolation and runs the trusted parity harness."""
 
     repo: Path
     threshold: float = PARITY_THRESHOLD
@@ -53,44 +52,15 @@ class ParityGate:
         *,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
-        input_data: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        kwargs: dict[str, Any] = {
-            "cwd": cwd,
-            "check": False,
-            "capture_output": True,
-            "text": True,
-            "env": env,
-        }
-        if input_data is not None:
-            kwargs["input"] = input_data
-        return self.runner(args, **kwargs)
-
-    def _wait_for_database(self, project: str, cwd: Path) -> None:
-        deadline = time.monotonic() + 120
-        command = [
-            "docker",
-            "compose",
-            "-p",
-            project,
-            "exec",
-            "-T",
-            "db",
-            "mysqladmin",
-            "ping",
-            "-h",
-            "localhost",
-            "-proot",
-        ]
-        last_result: subprocess.CompletedProcess[str] | None = None
-        while True:
-            last_result = self._run(command, cwd=cwd)
-            if last_result.returncode == 0:
-                return
-            if time.monotonic() >= deadline:
-                detail = last_result.stderr.strip() or last_result.stdout.strip()
-                raise MeasurementFailure(f"database readiness timed out: {detail}")
-            time.sleep(1)
+        return self.runner(
+            args,
+            cwd=cwd,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
     def _verify_worktree(self, slice_name: str, branch: str) -> Path:
         _validate_branch(branch)
@@ -125,6 +95,15 @@ class ParityGate:
                 f"worktree checkout failed for {branch}: "
                 f"{refreshed.stderr.strip() or refreshed.stdout.strip()}"
             )
+        # Keep the measurement harness and traffic fixtures trusted; only the
+        # candidate service code comes from the agent-authored worktree.
+        (verify_dir / "tools").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(self.repo / "tools" / "parity.py", verify_dir / "tools" / "parity.py")
+        shutil.copyfile(
+            self.repo / "tools" / "wait_for_legacy.py",
+            verify_dir / "tools" / "wait_for_legacy.py",
+        )
+        shutil.copytree(self.repo / "traffic", verify_dir / "traffic", dirs_exist_ok=True)
         return verify_dir
 
     def measure(
@@ -148,6 +127,7 @@ class ParityGate:
                     "up",
                     "-d",
                     "--build",
+                    "--wait",
                     "db",
                     "legacy",
                     service_name,
@@ -158,29 +138,39 @@ class ParityGate:
                 raise MeasurementFailure(
                     f"compose build failed: {started.stderr.strip() or started.stdout.strip()}"
                 )
-            self._wait_for_database(project, verify_dir)
-            seed_path = self.repo / "db" / "seed.sql"
-            seed = seed_path.read_text(encoding="utf-8")
-            seeded = self._run(
+            environment = {
+                **os.environ,
+                "HOST_UID": str(os.getuid()),
+                "HOST_GID": str(os.getgid()),
+            }
+            ready = self._run(
                 [
                     "docker",
                     "compose",
                     "-p",
                     project,
-                    "exec",
-                    "-T",
-                    "db",
-                    "mysql",
-                    "-ulegacy",
-                    "-plegacy",
-                    "legacy_shop",
+                    "--profile",
+                    "tools",
+                    "run",
+                    "--rm",
+                    "--user",
+                    f"{os.getuid()}:{os.getgid()}",
+                    "-e",
+                    "LEGACY_URL=http://legacy",
+                    "parity",
+                    "python",
+                    "tools/wait_for_legacy.py",
+                    "--slice",
+                    slice_name,
+                    "--timeout",
+                    "120",
                 ],
                 cwd=verify_dir,
-                input_data=seed,
+                env=environment,
             )
-            if seeded.returncode:
+            if ready.returncode:
                 raise MeasurementFailure(
-                    f"database seed failed: {seeded.stderr.strip() or seeded.stdout.strip()}"
+                    f"legacy readiness failed: {ready.stderr.strip() or ready.stdout.strip()}"
                 )
             source = verify_dir / "parity" / f"{slice_name}.json"
             source.unlink(missing_ok=True)
