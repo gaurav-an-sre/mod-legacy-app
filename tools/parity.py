@@ -46,10 +46,27 @@ def _capture(
     return record, comparable
 
 
+def resolve_candidate_url(
+    slice_name: str,
+    *,
+    explicit: str | None = None,
+    routes_path: Path = Path("strangler/routes.yaml"),
+) -> str:
+    """Pick the candidate base URL for a slice."""
+    if explicit:
+        return explicit
+    routes = yaml.safe_load(routes_path.read_text(encoding="utf-8"))
+    candidate = routes.get("slices", {}).get(slice_name, {}).get("candidate")
+    if candidate:
+        return f"http://{candidate}"
+    return os.getenv("CANDIDATE_URL", "http://localhost:8081")
+
+
 def compare_slice(
     slice_name: str,
     requests_path: Path = Path("traffic/requests.yaml"),
     normalize_path: Path = Path("traffic/normalize.yaml"),
+    routes_path: Path = Path("strangler/routes.yaml"),
     legacy_url: str | None = None,
     candidate_url: str | None = None,
     threshold: float = 0.99,
@@ -61,7 +78,9 @@ def compare_slice(
     if requests is None:
         raise ValueError(f"unknown slice: {slice_name}")
     legacy_url = legacy_url or os.getenv("LEGACY_URL", "http://localhost:8080")
-    candidate_url = candidate_url or os.getenv("CANDIDATE_URL", "http://localhost:8081")
+    candidate_url = resolve_candidate_url(
+        slice_name, explicit=candidate_url, routes_path=routes_path
+    )
     results = []
     matches = 0
     with httpx.Client(timeout=10) as client:
