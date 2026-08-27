@@ -27,6 +27,17 @@ from .validation import ContractError, parse_phase_reply
 PROMPT_DIR = Path(__file__).parent / "prompts"
 
 
+def _is_agent_not_found(exc: BaseException) -> bool:
+    try:
+        import cursor_sdk
+    except ImportError:
+        return "agent_not_found" in str(exc).lower()
+    error_type = getattr(cursor_sdk, "AgentNotFoundError", None)
+    if isinstance(error_type, type) and issubclass(error_type, BaseException):
+        return isinstance(exc, error_type)
+    return "agent_not_found" in str(exc).lower()
+
+
 class PhaseFailure(RuntimeError):
     """A phase reply broke its contract, so the slice stops here."""
 
@@ -81,31 +92,52 @@ class Migration:
         if st.finished:
             print(f"[{slice_name}] already {st.status}, nothing to do", flush=True)
             return
-        agent = self._agent(st, wave)
+        agent_recreated = False
+        try:
+            agent = self._agent(st, wave)
+        except Exception as exc:
+            if not _is_agent_not_found(exc) or not st.branch:
+                raise
+            agent = self._recreate_agent(st, wave)
+            agent_recreated = True
         st.status = "running"
         self._checkpoint(st)
+
+        def run_phase(phase_name: str, *, event_name: str | None = None) -> dict[str, Any]:
+            nonlocal agent, agent_recreated
+            payload, agent = self._phase(
+                agent,
+                st,
+                phase_name,
+                wave=wave,
+                event_name=event_name,
+                allow_recreate=not agent_recreated,
+            )
+            agent_recreated = False
+            return payload
+
         while not st.finished:
-            phase = st.phase
-            if phase == "extract":
-                payload = self._phase(agent, st, "extract")
+            phase_name = st.phase
+            if phase_name == "extract":
+                payload = run_phase("extract")
                 st.branch = str(payload["branch"])
                 st.service_name = str(payload["service_name"])
                 st.container_port = int(payload["container_port"])
                 st.phase = "gate"
-            elif phase == "gate":
+            elif phase_name == "gate":
                 self._gate(st)
-            elif phase == "parity_fix":
-                payload = self._phase(agent, st, "parity_fix")
+            elif phase_name == "parity_fix":
+                payload = run_phase("parity_fix")
                 st.branch = str(payload["branch"])
                 st.parity_attempts += 1
                 st.phase = "gate"
-            elif phase == "cutover_plan":
-                self._phase(agent, st, "cutover_plan")
+            elif phase_name == "cutover_plan":
+                run_phase("cutover_plan")
                 st.phase = "notion_status"
-            elif phase == "notion_status":
+            elif phase_name == "notion_status":
                 if self.notion_mode == "mcp":
                     try:
-                        payload = self._phase(agent, st, "notion_status")
+                        payload = run_phase("notion_status")
                     except PhaseFailure:
                         raise
                     except Exception as exc:
@@ -116,13 +148,15 @@ class Migration:
                             "retrying with local runtime",
                             flush=True,
                         )
-                        payload = self._phase(
+                        payload, _ = self._phase(
                             self.fleet.local_notion_agent(
                                 slice_name, notion_mcp_servers(self.notion_token)
                             ),
                             st,
                             "notion_status",
+                            wave=wave,
                             event_name="notion_status_fallback",
+                            allow_recreate=False,
                         )
                     st.notion_page_id = str(payload.get("page_id") or st.notion_page_id or "")
                     print(
@@ -134,7 +168,7 @@ class Migration:
                 st.phase = "done"
                 st.status = "done"
             else:
-                raise ValueError(f"unknown phase in state: {phase}")
+                raise ValueError(f"unknown phase in state: {phase_name}")
             self._checkpoint(st)
 
     def _agent(self, st: SliceState, wave: int) -> Any:
@@ -152,6 +186,24 @@ class Migration:
         self._checkpoint(st)
         return agent
 
+    def _recreate_agent(self, st: SliceState, wave: int) -> Any:
+        old_agent_id = st.agent_id
+        agent = self.fleet.create_agent(
+            st.name,
+            wave,
+            env_vars=self._env_vars(),
+            mcp_servers=self._mcp_servers(),
+            starting_ref=st.branch,
+        )
+        st.agent_id = str(getattr(agent, "agent_id", ""))
+        self._checkpoint(st)
+        print(
+            f"[{st.name}] agent {old_agent_id} is gone; recreated as {st.agent_id} "
+            f"from {st.branch}",
+            flush=True,
+        )
+        return agent
+
     def _env_vars(self) -> dict[str, str]:
         if self.notion_mode == "mcp" and self.notion_token:
             return {"NOTION_TOKEN": self.notion_token}
@@ -163,6 +215,24 @@ class Migration:
         return None
 
     def _phase(
+        self,
+        agent: Any,
+        st: SliceState,
+        phase: str,
+        *,
+        wave: int,
+        event_name: str | None = None,
+        allow_recreate: bool = True,
+    ) -> tuple[dict[str, Any], Any]:
+        try:
+            return self._phase_once(agent, st, phase, event_name=event_name), agent
+        except Exception as exc:
+            if not allow_recreate or not _is_agent_not_found(exc) or not st.branch:
+                raise
+            replacement = self._recreate_agent(st, wave)
+            return self._phase_once(replacement, st, phase, event_name=event_name), replacement
+
+    def _phase_once(
         self,
         agent: Any,
         st: SliceState,
