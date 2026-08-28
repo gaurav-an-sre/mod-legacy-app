@@ -3,7 +3,7 @@ slices:
     weight: 0
     mirror: true
     upstream: candidate_catalog
-    candidate: fake-candidate:8000
+    candidate: catalog:8001
     routes:
     - /api/catalog/products
     - /api/catalog/product
