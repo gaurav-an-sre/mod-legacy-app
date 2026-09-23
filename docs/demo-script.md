@@ -47,7 +47,7 @@ Terminal:
 
 ```sh
 curl 'localhost:8080/api/catalog/products?q=mug'        # the legacy API, served by PHP through the façade
-make search-eval SLICE=catalog | head -3               # legacy ranking on the Thai golden set: tone_marks 0.000
+make search-eval SLICE=catalog                          # legacy ranking on the Thai golden set: tone_marks 0.000, overall 0.421
 ```
 
 (The Compose seed is the monolith's own English fixture; the Thai product set
