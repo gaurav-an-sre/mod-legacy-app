@@ -157,8 +157,10 @@ hooks, skill and subagents from the checkout, and pushes its branch for the
 gate exactly like a cloud agent. Use it for offline development or when cloud
 execution is unavailable; the phase machine, gate and cutover path are
 identical. Once a slice passes the gate the controller runs
-`tools/cutover.py register` to point `strangler/routes.yaml` at the candidate
-at weight 0; agents never edit that file.
+`tools/cutover.py register --no-reload` to point `strangler/routes.yaml` at the
+candidate at weight 0; agents never edit that file. Registration only stages
+the manifest: the façade is reloaded, and traffic promoted, after the slice PR
+is merged and `make up` has started the candidate in the live Compose project.
 
 `--notion off` is the default. `--notion api` writes deterministic per-phase
 status using the Notion REST API; `--notion mcp` additionally runs the authored

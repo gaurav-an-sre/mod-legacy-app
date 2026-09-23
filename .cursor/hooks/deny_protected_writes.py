@@ -21,9 +21,15 @@ PROTECTED = (
     "strangler/routes.yaml",
 )
 
+PROTECTED_DIRS = ("legacy", "db")
+
+# A command is read-only only if it is a single simple command with a read-only
+# verb: any pipe, redirect, separator or substitution disqualifies the whole line.
 READ_ONLY_SHELL = re.compile(
     r"^\s*(cat|less|head|tail|grep|rg|ls|find|diff|git\s+(diff|log|show|status))\b"
 )
+SHELL_COMPOUND = re.compile(r"[|;&<>`\n]|\$\(")
+CD_INTO_PROTECTED = re.compile(r"\bcd\s+(?:\S*/)?(legacy|db)(?:/|\s|$)")
 
 MESSAGE = (
     "blocked by .cursor/hooks: legacy/ and db/ are the immutable source system and "
@@ -36,10 +42,32 @@ def touches_protected(text: str) -> bool:
     return any(part in text for part in PROTECTED)
 
 
+def is_read_only(command: str) -> bool:
+    return bool(READ_ONLY_SHELL.match(command)) and not SHELL_COMPOUND.search(command)
+
+
+def cwd_is_protected(payload: dict) -> bool:
+    cwd = str(payload.get("cwd", "")).rstrip("/")
+    if not cwd:
+        return False
+    for root in payload.get("workspace_roots", []) or []:
+        root = str(root).rstrip("/")
+        if cwd == root:
+            return False
+        if cwd.startswith(root + "/"):
+            cwd = cwd[len(root) + 1 :]
+            break
+    return any(part in PROTECTED_DIRS for part in cwd.split("/"))
+
+
 def decide(payload: dict) -> dict:
     if "command" in payload and "tool_name" not in payload:
         command = str(payload.get("command", ""))
-        if touches_protected(command) and not READ_ONLY_SHELL.match(command):
+        if is_read_only(command):
+            return {"permission": "allow"}
+        if touches_protected(command) or CD_INTO_PROTECTED.search(command):
+            return deny()
+        if cwd_is_protected(payload):
             return deny()
         return {"permission": "allow"}
 

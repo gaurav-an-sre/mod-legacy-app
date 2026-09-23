@@ -254,6 +254,7 @@ class Migration:
             agent.send(render_prompt(phase, variables)),
             label,
             slice_dir / f"{event_name or phase}.jsonl",
+            agent=agent,
         )
         if run_id:
             st.run_ids.append(run_id)
@@ -283,7 +284,8 @@ class Migration:
         st.parity_rate = self.gate.rate(report)
         if self.gate.passed(report):
             print(f"[{st.name}] gate passed at {st.parity_rate:.3f}", flush=True)
-            self.gate.register(st.name, str(st.service_name), int(st.container_port))
+            with self._lock:
+                self.gate.register(st.name, str(st.service_name), int(st.container_port))
             st.phase = "cutover_plan"
             return
         if st.parity_attempts < self.max_parity_attempts:

@@ -581,6 +581,13 @@ def test_hooks_json_uses_cursor_schema() -> None:
         ({"command": "echo x >> db/seed.sql", "cwd": "/w"}, "deny"),
         ({"command": "cat legacy/includes/db.php", "cwd": "/w"}, "allow"),
         ({"command": "make parity SLICE=catalog", "cwd": "/w"}, "allow"),
+        ({"command": "cat x && rm -rf legacy/", "cwd": "/w"}, "deny"),
+        ({"command": "cat legacy/index.php | tee db/seed.sql", "cwd": "/w"}, "deny"),
+        ({"command": "cd legacy && sed -i s/a/b/ index.php", "cwd": "/w"}, "deny"),
+        ({"command": "rm index.php", "cwd": "/w/legacy", "workspace_roots": ["/w"]}, "deny"),
+        ({"command": "echo x > seed.sql", "cwd": "/w/db/", "workspace_roots": ["/w"]}, "deny"),
+        ({"command": "pytest", "cwd": "/w/services/catalog", "workspace_roots": ["/w"]}, "allow"),
+        ({"command": "docker compose up -d db", "cwd": "/w", "workspace_roots": ["/w"]}, "allow"),
     ],
 )
 def test_protected_paths_hook(payload: dict, permission: str) -> None:

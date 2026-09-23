@@ -678,3 +678,54 @@ def test_local_runtime_creates_worktree_on_migrate_branch(tmp_path: Path) -> Non
     ).stdout.strip()
     assert branch == "migrate/catalog"
     assert fleet.local_worktree("catalog") == worktree
+
+
+class _Run:
+    def __init__(self, text: str, status: str, run_id: str = "run-1") -> None:
+        self._result = SimpleNamespace(result=text, status=status, id=run_id)
+        self.id = run_id
+
+    def stream(self):
+        return iter(())
+
+    def wait(self):
+        return self._result
+
+
+def test_stream_run_reattaches_when_cloud_stream_drops(tmp_path: Path) -> None:
+    from cursor_sdk.errors import AgentBusyError
+
+    from orchestrator.streaming import stream_run
+
+    busy = [2]
+    sleeps: list[float] = []
+
+    class _Agent:
+        def send(self, message: str):
+            if busy[0]:
+                busy[0] -= 1
+                raise AgentBusyError("agent_busy")
+            return _Run('{"branch": "migrate/catalog"}', "finished", "run-2")
+
+    text, run_id = stream_run(
+        _Run("", ""),
+        "catalog/extract",
+        tmp_path / "extract.jsonl",
+        agent=_Agent(),
+        poll_seconds=1.5,
+        sleep=sleeps.append,
+    )
+    assert text == '{"branch": "migrate/catalog"}'
+    assert run_id == "run-1"
+    assert sleeps == [1.5, 1.5]
+
+
+def test_stream_run_does_not_reattach_after_terminal_result(tmp_path: Path) -> None:
+    from orchestrator.streaming import stream_run
+
+    class _Agent:
+        def send(self, message: str):
+            raise AssertionError("must not send")
+
+    text, _ = stream_run(_Run("", "error"), "x", tmp_path / "x.jsonl", agent=_Agent())
+    assert text == ""
