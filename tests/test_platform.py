@@ -4,13 +4,16 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 
 import console.main as console_main
+import console.shop as console_shop
 from orchestrator.gate import ParityGate
 from strangler.render import render_routes
 from tools.cutover import _error_rates, promote, register, rollback
 from tools.parity import _normalize, compare_slice
+from tools.sawan_seed import ID_OFFSET, load_products, render_sql
 from tools.wait_for_legacy import wait_for_legacy
 
 ROOT = Path(__file__).parents[1]
@@ -737,3 +740,72 @@ def test_console_without_orchestrator_artifacts(
     assert "No agent has been dispatched" in rendered
     assert "not recorded" in rendered
     assert console_main.migration_state()["totals"]["agents"] == 0
+
+
+def test_sawan_seed_sql_stays_clear_of_monolith_ids() -> None:
+    products = load_products()
+    sql = render_sql(products)
+    assert sql.startswith("SET NAMES utf8mb4;")
+    assert "ON DUPLICATE KEY UPDATE" in sql
+    assert sql.count("\n(") == len(products)
+    assert f"({ID_OFFSET + 1}, 'SM-FS-001'" in sql
+    assert all(int(p["id"]) + ID_OFFSET > 100 for p in products)
+    assert "'it''s'" in render_sql([{**products[0], "name": "it's"}])
+
+
+def _shop_transport(served_by: str) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if host == "legacy":
+            return httpx.Response(200, json={"products": []})
+        if host == "candidate":
+            return httpx.Response(
+                200,
+                json={"products": [{"id": 108, "sku": "SM-DR-001", "name": "Coke", "price": "32"}]},
+            )
+        if host == "facade":
+            return httpx.Response(
+                200, json={"products": []}, headers={"X-Migration-Served": served_by}
+            )
+        raise httpx.ConnectError("down")
+
+    return httpx.MockTransport(handler)
+
+
+def test_shop_page_compares_backends_and_shows_facade_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SHOP_LEGACY_URL", "http://legacy")
+    monkeypatch.setenv("SHOP_CANDIDATE_URL", "http://candidate")
+    monkeypatch.setenv("SHOP_FACADE_URL", "http://facade")
+    monkeypatch.setenv("SHOP_FACADE_PUBLIC_URL", "http://localhost:8080")
+    columns = console_shop.fetch_results("โค้ก", transport=_shop_transport("legacy"))
+    assert [len(c["items"]) for c in columns] == [0, 1, 0]
+    assert columns[2]["served_by"] == "legacy"
+    assert columns[2]["url"].startswith("http://localhost:8080/api/catalog/products?q=")
+    rendered = console_shop.render_shop("โค้ก", columns, 5)
+    assert "weight: <b>5%" in rendered
+    assert "served by legacy" in rendered
+    assert "SM-DR-001" in rendered
+    assert rendered.count("0 results") >= 2
+
+
+def test_shop_page_unreachable_backend_is_a_column_not_a_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SHOP_LEGACY_URL", "http://nowhere")
+    monkeypatch.setenv("SHOP_CANDIDATE_URL", "http://candidate")
+    monkeypatch.setenv("SHOP_FACADE_URL", "http://facade")
+    rendered = console_shop.shop_page("mug", 100, transport=_shop_transport("candidate"))
+    assert "unreachable — ConnectError" in rendered
+    assert "served by candidate" in rendered
+    assert "<script" not in rendered
+
+
+def test_shop_page_without_query_does_not_call_backends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        console_shop, "fetch_results", lambda *a: pytest.fail("backends must not be called")
+    )
+    rendered = console_shop.shop_page("  ", None)
+    assert "type a query" in rendered
+    assert "weight: <b>n/a" in rendered

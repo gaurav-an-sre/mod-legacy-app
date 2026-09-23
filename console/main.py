@@ -27,6 +27,8 @@ import yaml
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+from console.shop import shop_page
+
 app = FastAPI()
 ROOT = Path(__file__).parents[1]
 RECENT_EVENTS = 12
@@ -314,6 +316,13 @@ def _search_card(state: dict[str, Any]) -> str:
     )
 
 
+@app.get("/_migration/shop", response_class=HTMLResponse)
+def migration_shop(q: str = "") -> str:
+    """Sawan Mart storefront: legacy vs candidate vs façade for one query, read-only."""
+    weights = {s["name"]: s["weight"] for s in _state()}
+    return shop_page(q, weights.get("catalog"))
+
+
 @app.get("/_migration", response_class=HTMLResponse)
 @app.get("/_migration/", response_class=HTMLResponse)
 def migration_console() -> str:
@@ -382,7 +391,8 @@ def migration_console() -> str:
         "</style></head><body><main><h1>Sawan Mart · strangler migration console</h1>"
         "<p>Legacy PHP monolith → Cursor-extracted services. Auto-refreshing façade view · "
         "replay parity is the promotion gate · weights are controller-owned "
-        '(<a href="/_migration/api/state">JSON</a>).</p>'
+        '(<a href="/_migration/api/state">JSON</a> · '
+        '<a href="/_migration/shop">Sawan Mart storefront</a>).</p>'
         '<div class="kpis">'
     )
     kpis = [

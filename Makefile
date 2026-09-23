@@ -3,7 +3,7 @@ PYTHON := .venv/bin/python
 COMPOSE := docker compose
 SLICE ?= catalog
 
-.PHONY: up render seed parity promote rollback cutover-demo search-eval down test lint
+.PHONY: up render seed seed-sawan parity promote rollback cutover-demo search-eval down test lint
 
 render:
 	$(PYTHON) strangler/render.py
@@ -13,6 +13,9 @@ up: render
 
 seed:
 	$(COMPOSE) exec -T db mysql -ulegacy -plegacy legacy_shop < db/seed.sql
+
+seed-sawan:
+	$(PYTHON) tools/sawan_seed.py | $(COMPOSE) exec -T db mysql -ulegacy -plegacy legacy_shop
 
 parity:
 	HOST_UID=$(shell id -u) HOST_GID=$(shell id -g) \

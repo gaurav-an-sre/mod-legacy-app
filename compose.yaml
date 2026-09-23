@@ -42,8 +42,10 @@ services:
       # legacy = bug-for-bug LIKE (parity); enhanced = ranked Thai-aware search (search-eval).
       SEARCH_MODE: "${SEARCH_MODE:-legacy}"
       SEARCH_SYNONYMS: /search_eval/synonyms.yaml
+      SEARCH_TAGS: /search_eval/products.yaml
     volumes:
       - ./search_eval/sawan_mart/synonyms.yaml:/search_eval/synonyms.yaml:ro
+      - ./search_eval/sawan_mart/products.yaml:/search_eval/products.yaml:ro
     depends_on:
       db:
         condition: service_healthy
@@ -52,6 +54,11 @@ services:
     build:
       context: .
       dockerfile: console/Dockerfile
+    environment:
+      # Storefront page compares the same query across the three paths.
+      SHOP_LEGACY_URL: http://legacy:80
+      SHOP_CANDIDATE_URL: http://candidate-catalog:8001
+      SHOP_FACADE_URL: http://strangler:80
     volumes:
       - .:/workspace
 

@@ -78,6 +78,7 @@ http {
 {% endif %}
             proxy_set_header Host $host;
             proxy_set_header X-Migration-Backend $migration_backend;
+            add_header X-Migration-Served $migration_backend always;
         }
 {% endfor %}
 {% endfor %}
