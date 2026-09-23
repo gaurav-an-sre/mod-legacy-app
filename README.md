@@ -32,17 +32,27 @@ pricing behavior.
 
 ## Parity and cutover demo
 
+`services/catalog/` is the first real extracted slice (built by a Cursor Cloud
+Agent) and `strangler/routes.yaml` already points `catalog` at it at weight 0.
+`make cutover-demo` rehearses the whole lifecycle against the live stack:
+health check, fresh parity measurement, controller-owned registration, soak at
+0%, gated promotion 5 → 50 → 100 with real traffic counted per backend from the
+façade's own log, and rollback. `FAILURE_DRILL=1 make cutover-demo` additionally
+stops the candidate at 5%, shows `promote` refusing because candidate 5xx
+exceeds legacy, and rolls back; the façade resolves candidates through Docker
+DNS per request, so rollback works even when the candidate container is gone.
+
 The candidate in `tests/fixtures/fake_candidate/` is not an extracted service.
 It is a tiny fixture used to make the platform verifiable without a Cursor
 agent. It deliberately returns a differently rounded price by default.
 
 ```sh
-# The candidate is divergent, so this writes parity/catalog.json and exits 1.
+# Replay recorded traffic against the real catalog candidate (CANDIDATE_URL in compose.yaml).
 make parity
 
-# Point the fixture at matching responses, then replay.
-FAKE_DIVERGE=0 docker compose up -d --build fake-candidate
-make parity
+# To see the gate fail, point it at the divergent fixture instead.
+docker compose --profile tools run --rm -e CANDIDATE_URL=http://fake-candidate:8000 parity \
+  python tools/parity.py --slice catalog
 
 # Promote through 5%, 50%, and 100%; each command advances one step.
 make promote
@@ -85,6 +95,26 @@ the façade.
 
 Every `make` target that takes a slice honours `SLICE` (default `catalog`), for
 example `make parity SLICE=orders` or `make promote SLICE=reports`.
+
+## Search evaluation (Sawan Mart)
+
+Parity proves the candidate is bug-for-bug legacy. `make search-eval` is the
+second deterministic gate: it proves the candidate's *enhanced* search is
+better without regressing. `search_eval/sawan_mart/` holds a fixed Thai grocery
+catalog, a synonym map, and golden queries grouped by category — exact,
+missing/reordered tone marks (`นำปลา`, `นํ้าปลา` → `น้ำปลา`), brand/generic
+synonyms (`โค้ก` → Coca-Cola), autocomplete prefixes, and intent queries such as
+`ของว่าง` (snacks). `tools/search_eval.py` scores recall@3 for the legacy
+`LIKE '%q%'` behaviour and for `services/catalog/search.py`, writes
+`search_eval/catalog.json`, and exits non-zero if the enhanced score is below
+the threshold or is worse than legacy in any category. No model is involved, so
+the same fixtures give the same numbers on every run and in CI.
+
+The candidate serves legacy behaviour by default (`SEARCH_MODE=legacy`, which is
+what parity measures). Setting `SEARCH_MODE=enhanced` (and optionally
+`SEARCH_SYNONYMS=/path/to/synonyms.yaml`) on the `candidate-catalog` service
+switches `/api/catalog/products?q=` to the ranked, tone-mark-insensitive search
+once the slice is at 100%.
 
 ## Cursor agent handoff
 
