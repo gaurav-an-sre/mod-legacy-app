@@ -23,6 +23,10 @@ class SliceState:
     parity_attempts: int = 0
     notion_page_id: str | None = None
     error: str | None = None
+    runtime: str | None = None
+    pr_url: str | None = None
+    duration_ms: int = 0
+    usage: dict[str, float] = field(default_factory=dict)
 
     @property
     def finished(self) -> bool:

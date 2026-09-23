@@ -4,13 +4,16 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 
 import console.main as console_main
+import console.shop as console_shop
 from orchestrator.gate import ParityGate
 from strangler.render import render_routes
 from tools.cutover import _error_rates, promote, register, rollback
 from tools.parity import _normalize, compare_slice
+from tools.sawan_seed import ID_OFFSET, load_products, render_sql
 from tools.wait_for_legacy import wait_for_legacy
 
 ROOT = Path(__file__).parents[1]
@@ -609,3 +612,200 @@ def test_register_points_slice_at_candidate_without_moving_weight(tmp_path: Path
     assert config["slices"]["orders"]["candidate"] == "candidate-orders:8000"
     assert config["slices"]["orders"]["upstream"] == "candidate_orders"
     assert config["slices"]["orders"]["weight"] == 0
+
+
+def _console_fixture(tmp_path: Path) -> None:
+    (tmp_path / "strangler" / "logs").mkdir(parents=True)
+    (tmp_path / "parity").mkdir()
+    (tmp_path / "search_eval").mkdir()
+    (tmp_path / "out" / "catalog").mkdir(parents=True)
+    (tmp_path / "strangler" / "routes.yaml").write_text(
+        "slices:\n"
+        "  catalog:\n"
+        "    weight: 50\n"
+        "    mirror: true\n"
+        "    upstream: candidate_catalog\n"
+        "    candidate: candidate-catalog:8001\n"
+        "    routes: [/api/catalog/products]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "strangler" / "logs" / "access.log").write_text(
+        "t route=catalog backend=legacy status=200 latency_ms=1\n"
+        "t route=catalog backend=candidate status=200 latency_ms=1\n"
+        "t route=catalog backend=candidate status=502 latency_ms=1\n"
+        "garbage line\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "parity" / "catalog.json").write_text(
+        json.dumps({"match_rate": 1.0, "matched": 10, "total": 10}), encoding="utf-8"
+    )
+    (tmp_path / "search_eval" / "catalog.json").write_text(
+        json.dumps(
+            {
+                "passed": True,
+                "threshold": 0.9,
+                "k": 3,
+                "queries": [{}] * 19,
+                "summary": {
+                    "legacy": {"exact": 1.0, "tone_marks": 0.0, "overall": 0.421},
+                    "enhanced": {"exact": 1.0, "tone_marks": 1.0, "overall": 1.0},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "state.json").write_text(
+        json.dumps(
+            {
+                "slices": {
+                    "catalog": {
+                        "name": "catalog",
+                        "agent_id": "bc-123",
+                        "runtime": "cloud",
+                        "branch": "cursor/extract-catalog",
+                        "pr_url": "https://github.com/x/y/pull/16",
+                        "phase": "done",
+                        "status": "done",
+                        "run_ids": ["run-1", "run-2"],
+                        "parity_attempts": 0,
+                        "usage": {"charged_cents": 109.7, "total_tokens": 1564355, "runs": 4},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "catalog" / "extract.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "out" / "catalog" / "cutover_plan.jsonl").write_text(
+        '{"type": "status", "status": "RUNNING"}\n'
+        "not json\n"
+        '{"type": "tool_call", "name": "read_file", "status": "completed", '
+        '"args": {"path": "/workspace/strangler/routes.yaml"}}\n'
+        '{"type": "tool_call", "name": "shell", "status": "completed", '
+        '"args": {"command": "make parity SLICE=catalog"}}\n'
+        '{"type": "assistant", "text": "done"}\n',
+        encoding="utf-8",
+    )
+
+
+def test_console_state_reads_real_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _console_fixture(tmp_path)
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    payload = console_main.migration_state()
+    (catalog,) = payload["slices"]
+    assert catalog["weight"] == 50
+    assert catalog["counts"] == {"legacy": 1, "candidate": 2, "errors": 1}
+    assert catalog["agent"]["pr_url"] == "https://github.com/x/y/pull/16"
+    assert catalog["agent"]["runtime"] == "cloud"
+    assert catalog["agent"]["runs"] == 2
+    assert catalog["events"]["total"] == 4
+    assert catalog["events"]["phases"]["cutover_plan"]["tool_calls"] == 2
+    assert catalog["events"]["recent"][-1] == {
+        "phase": "cutover_plan",
+        "type": "assistant",
+        "text": "done",
+    }
+    assert catalog["search_eval"]["legacy_overall"] == 0.421
+    assert catalog["search_eval"]["enhanced_overall"] == 1.0
+    assert payload["totals"]["charged_cents"] == 109.7
+    assert payload["totals"]["gate_ready"] == 1
+    assert payload["totals"]["serving"] == 1
+
+
+def test_console_html_shows_agent_search_and_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _console_fixture(tmp_path)
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    rendered = console_main.migration_console()
+    assert "RAMPING 50%" in rendered
+    assert "bc-123" in rendered
+    assert 'href="https://github.com/x/y/pull/16"' in rendered
+    assert "$1.10" in rendered
+    assert "42%</b> → enhanced <b class=good>100%" in rendered
+    assert "read_file×1" in rendered
+
+
+def test_console_without_orchestrator_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "strangler").mkdir()
+    (tmp_path / "strangler" / "routes.yaml").write_text(
+        "slices:\n  orders:\n    weight: 0\n    routes: [/api/orders]\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    rendered = console_main.migration_console()
+    assert "No agent has been dispatched" in rendered
+    assert "not recorded" in rendered
+    assert console_main.migration_state()["totals"]["agents"] == 0
+
+
+def test_sawan_seed_sql_stays_clear_of_monolith_ids() -> None:
+    products = load_products()
+    sql = render_sql(products)
+    assert sql.startswith("SET NAMES utf8mb4;")
+    assert "ON DUPLICATE KEY UPDATE" in sql
+    assert sql.count("\n(") == len(products)
+    assert f"({ID_OFFSET + 1}, 'SM-FS-001'" in sql
+    assert all(int(p["id"]) + ID_OFFSET > 100 for p in products)
+    assert "'it''s'" in render_sql([{**products[0], "name": "it's"}])
+
+
+def _shop_transport(served_by: str) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if host == "legacy":
+            return httpx.Response(200, json={"products": []})
+        if host == "candidate":
+            return httpx.Response(
+                200,
+                json={"products": [{"id": 108, "sku": "SM-DR-001", "name": "Coke", "price": "32"}]},
+            )
+        if host == "facade":
+            return httpx.Response(
+                200, json={"products": []}, headers={"X-Migration-Served": served_by}
+            )
+        raise httpx.ConnectError("down")
+
+    return httpx.MockTransport(handler)
+
+
+def test_shop_page_compares_backends_and_shows_facade_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SHOP_LEGACY_URL", "http://legacy")
+    monkeypatch.setenv("SHOP_CANDIDATE_URL", "http://candidate")
+    monkeypatch.setenv("SHOP_FACADE_URL", "http://facade")
+    monkeypatch.setenv("SHOP_FACADE_PUBLIC_URL", "http://localhost:8080")
+    columns = console_shop.fetch_results("โค้ก", transport=_shop_transport("legacy"))
+    assert [len(c["items"]) for c in columns] == [0, 1, 0]
+    assert columns[2]["served_by"] == "legacy"
+    assert columns[2]["url"].startswith("http://localhost:8080/api/catalog/products?q=")
+    rendered = console_shop.render_shop("โค้ก", columns, 5)
+    assert "weight: <b>5%" in rendered
+    assert "served by legacy" in rendered
+    assert "SM-DR-001" in rendered
+    assert rendered.count("0 results") >= 2
+
+
+def test_shop_page_unreachable_backend_is_a_column_not_a_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SHOP_LEGACY_URL", "http://nowhere")
+    monkeypatch.setenv("SHOP_CANDIDATE_URL", "http://candidate")
+    monkeypatch.setenv("SHOP_FACADE_URL", "http://facade")
+    rendered = console_shop.shop_page("mug", 100, transport=_shop_transport("candidate"))
+    assert "unreachable — ConnectError" in rendered
+    assert "served by candidate" in rendered
+    assert "<script" not in rendered
+
+
+def test_shop_page_without_query_does_not_call_backends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        console_shop, "fetch_results", lambda *a: pytest.fail("backends must not be called")
+    )
+    rendered = console_shop.shop_page("  ", None)
+    assert "type a query" in rendered
+    assert "weight: <b>n/a" in rendered

@@ -12,7 +12,7 @@
       "tone_marks": 0.0,
       "synonyms": 0.167,
       "autocomplete": 1.0,
-      "semantic": 0.333
+      "concept": 0.333
     },
     "enhanced": {
       "exact": 1.0,
@@ -20,7 +20,7 @@
       "tone_marks": 1.0,
       "synonyms": 1.0,
       "autocomplete": 1.0,
-      "semantic": 1.0
+      "concept": 1.0
     }
   },
   "queries": [
@@ -330,7 +330,7 @@
     },
     {
       "q": "ของว่าง",
-      "category": "semantic",
+      "category": "concept",
       "expect": [
         11,
         12
@@ -349,7 +349,7 @@
     },
     {
       "q": "ซักผ้า",
-      "category": "semantic",
+      "category": "concept",
       "expect": [
         14
       ],
@@ -366,7 +366,7 @@
     },
     {
       "q": "ผลไม้",
-      "category": "semantic",
+      "category": "concept",
       "expect": [
         15
       ],
