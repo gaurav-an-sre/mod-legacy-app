@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-from fastapi.testclient import TestClient
-
 from app import app, money, product_row
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
@@ -74,7 +72,9 @@ def test_products_search_empty(mock_connect: MagicMock) -> None:
     conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
     mock_connect.return_value = conn
 
-    response = client.get("/api/catalog/products", params={"q": "missing", "page": 1, "per_page": 20})
+    response = client.get(
+        "/api/catalog/products", params={"q": "missing", "page": 1, "per_page": 20}
+    )
     assert response.status_code == 200
     assert response.json()["products"] == []
 
