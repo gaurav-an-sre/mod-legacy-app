@@ -9,3 +9,4 @@ out/
 strangler/nginx.conf
 strangler/logs/*
 !strangler/logs/.gitkeep
+.work/

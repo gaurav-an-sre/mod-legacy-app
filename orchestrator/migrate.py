@@ -283,6 +283,7 @@ class Migration:
         st.parity_rate = self.gate.rate(report)
         if self.gate.passed(report):
             print(f"[{st.name}] gate passed at {st.parity_rate:.3f}", flush=True)
+            self.gate.register(st.name, str(st.service_name), int(st.container_port))
             st.phase = "cutover_plan"
             return
         if st.parity_attempts < self.max_parity_attempts:

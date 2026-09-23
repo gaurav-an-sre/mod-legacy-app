@@ -64,6 +64,9 @@ class FakeGate:
     def measure(self, _slice: str, **_kwargs: Any):
         return {"match_rate": 1.0}
 
+    def register(self, slice_name: str, service_name: str, container_port: int) -> None:
+        self.registered = (slice_name, service_name, container_port)
+
     @staticmethod
     def rate(report):
         return report["match_rate"]
@@ -641,3 +644,37 @@ def test_sdk_api_errors_are_not_retried_via_fallback(monkeypatch: pytest.MonkeyP
     fleet = CloudFleet("https://example.test/repo", "secret")
     with pytest.raises(RuntimeError, match="unauthorized"):
         fleet.create_agent("catalog", 1)
+
+
+def test_local_runtime_creates_worktree_on_migrate_branch(tmp_path: Path) -> None:
+    import subprocess
+
+    from orchestrator.sdk import CloudFleet
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    fleet = CloudFleet(repo_url="unused", api_key="k", repo=repo, runtime="local")
+    worktree = fleet.local_worktree("catalog")
+    assert worktree == repo / ".work" / "catalog"
+    branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree, capture_output=True, text=True
+    ).stdout.strip()
+    assert branch == "migrate/catalog"
+    assert fleet.local_worktree("catalog") == worktree

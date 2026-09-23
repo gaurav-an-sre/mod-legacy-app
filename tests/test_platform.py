@@ -9,7 +9,7 @@ import pytest
 import console.main as console_main
 from orchestrator.gate import ParityGate
 from strangler.render import render_routes
-from tools.cutover import _error_rates, promote, rollback
+from tools.cutover import _error_rates, promote, register, rollback
 from tools.parity import _normalize, compare_slice
 from tools.wait_for_legacy import wait_for_legacy
 
@@ -540,3 +540,62 @@ def test_console_reports_legacy_only_without_candidate(
     assert "Candidate: <code>legacy only</code>" in rendered
     assert "<b>0%</b> candidate traffic" in rendered
     assert 'style="width:100%"' not in rendered
+
+
+HOOK = ROOT / ".cursor" / "hooks" / "deny_protected_writes.py"
+
+
+def _hook(payload: dict) -> dict:
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=ROOT,
+    )
+    return json.loads(proc.stdout)
+
+
+def test_hooks_json_uses_cursor_schema() -> None:
+    config = json.loads((ROOT / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
+    assert config["version"] == 1
+    assert {"preToolUse", "beforeShellExecution"} <= set(config["hooks"])
+    for entries in config["hooks"].values():
+        for entry in entries:
+            assert entry["failClosed"] is True
+            assert entry["command"].endswith("deny_protected_writes.py")
+
+
+@pytest.mark.parametrize(
+    ("payload", "permission"),
+    [
+        ({"tool_name": "Write", "tool_input": {"path": "legacy/index.php"}}, "deny"),
+        ({"tool_name": "Delete", "tool_input": {"path": "db/seed.sql"}}, "deny"),
+        ({"tool_name": "Write", "tool_input": {"path": "strangler/routes.yaml"}}, "deny"),
+        ({"tool_name": "Write", "tool_input": {"path": "services/catalog/app.py"}}, "allow"),
+        ({"command": "sed -i 's/a/b/' legacy/index.php", "cwd": "/w"}, "deny"),
+        ({"command": "echo x >> db/seed.sql", "cwd": "/w"}, "deny"),
+        ({"command": "cat legacy/includes/db.php", "cwd": "/w"}, "allow"),
+        ({"command": "make parity SLICE=catalog", "cwd": "/w"}, "allow"),
+    ],
+)
+def test_protected_paths_hook(payload: dict, permission: str) -> None:
+    assert _hook(payload)["permission"] == permission
+
+
+def test_register_points_slice_at_candidate_without_moving_weight(tmp_path: Path) -> None:
+    routes = tmp_path / "routes.yaml"
+    routes.write_text((ROOT / "strangler" / "routes.yaml").read_text(encoding="utf-8"))
+    (tmp_path / "strangler").mkdir()
+    (tmp_path / "strangler" / "render.py").write_text("raise SystemExit(0)\n")
+    register("orders", "candidate-orders", 8000, routes_path=routes, repo=tmp_path, reload=False)
+    import yaml
+
+    config = yaml.safe_load(routes.read_text(encoding="utf-8"))
+    assert config["slices"]["orders"]["candidate"] == "candidate-orders:8000"
+    assert config["slices"]["orders"]["upstream"] == "candidate_orders"
+    assert config["slices"]["orders"]["weight"] == 0

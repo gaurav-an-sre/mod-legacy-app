@@ -90,12 +90,23 @@ example `make parity SLICE=orders` or `make promote SLICE=reports`.
 
 `services/` intentionally contains only a README. Extraction agents should
 write modernized services there, but must never modify `legacy/` or `db/`, and
-must never edit a route weight. See `AGENTS.md`. The local `.cursor/hooks.json`
-policy enforces that immutability: agent write, edit, and delete tools are
-blocked on `legacy/`, `db/`, and `strangler/routes.yaml`. Shell commands are not
-blocked, because extraction agents must be able to read the monolith and run
-`make seed`; the cutover controller writes `routes.yaml` through a plain
-subprocess, so promotion and rollback are unaffected.
+must never edit a route weight. See `AGENTS.md`. `.cursor/hooks.json` enforces
+that immutability with two fail-closed hooks backed by one script,
+`.cursor/hooks/deny_protected_writes.py`: `preToolUse` denies `Write`/`Delete`
+tool calls that touch `legacy/`, `db/`, or `strangler/routes.yaml`, and
+`beforeShellExecution` denies shell commands that mutate those paths while still
+allowing read-only commands (`cat`, `grep`, `git diff` ...) so agents can study
+the monolith. The same hooks load in the IDE, in local SDK agents and in Cloud
+Agents. The cutover controller writes `routes.yaml` through a plain subprocess
+outside any agent, so promotion and rollback are unaffected.
+
+Shared agent context lives next to the hooks and is picked up by every runtime:
+
+- `AGENTS.md` — the non-negotiable rules.
+- `.cursor/skills/extract-slice/SKILL.md` — the extraction playbook (service
+  layout, parity contract, PR checklist) that agents load on demand.
+- `.cursor/agents/*.md` — `extractor`, `parity-fixer` and a read-only
+  `reviewer` subagent the main agent delegates to.
 
 Cloud agents use `.cursor/Dockerfile`, which installs Docker Engine, Compose,
 and the nested-container overlay and iptables compatibility layers needed to
@@ -137,6 +148,17 @@ CURSOR_API_KEY=... python -m orchestrator migrate \
 python -m orchestrator status
 python -m orchestrator resume --slices catalog,orders,users,reports
 ```
+
+`--runtime cloud` (default) gives every slice its own Cursor-hosted VM and an
+auto-created PR. `--runtime local` creates the very same agent with
+`LocalAgentOptions` instead: it works in a sandboxed git worktree under
+`.work/<slice>/` on branch `migrate/<slice>`, loads the same `AGENTS.md`,
+hooks, skill and subagents from the checkout, and pushes its branch for the
+gate exactly like a cloud agent. Use it for offline development or when cloud
+execution is unavailable; the phase machine, gate and cutover path are
+identical. Once a slice passes the gate the controller runs
+`tools/cutover.py register` to point `strangler/routes.yaml` at the candidate
+at weight 0; agents never edit that file.
 
 `--notion off` is the default. `--notion api` writes deterministic per-phase
 status using the Notion REST API; `--notion mcp` additionally runs the authored

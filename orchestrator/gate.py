@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +46,25 @@ class ParityGate:
 
     def report_path(self, slice_name: str) -> Path:
         return self.repo / "parity" / f"{slice_name}.json"
+
+    def register(self, slice_name: str, service_name: str, container_port: int) -> None:
+        """The controller, never the agent, points routes.yaml at a gated candidate."""
+        self.runner(
+            [
+                sys.executable,
+                "tools/cutover.py",
+                "register",
+                "--slice",
+                slice_name,
+                "--service",
+                service_name,
+                "--port",
+                str(container_port),
+                "--no-reload",
+            ],
+            cwd=self.repo,
+            check=True,
+        )
 
     def _run(
         self,

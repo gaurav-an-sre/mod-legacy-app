@@ -22,6 +22,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--wave-size", type=int, default=4)
     parser.add_argument("--repo-url", default="https://github.com/gaurav-an-sre/mod-legacy-app")
     parser.add_argument("--starting-ref", default="main")
+    parser.add_argument(
+        "--runtime",
+        choices=("cloud", "local"),
+        default="cloud",
+        help="cloud: Cursor-hosted VM per slice with auto PR; local: same agent in a git worktree",
+    )
     parser.add_argument("--state", type=Path, default=Path("out/state.json"))
     parser.add_argument("--out-dir", type=Path, default=Path("out"))
     parser.add_argument("--notion", choices=("off", "api", "mcp"), default="off")
@@ -42,12 +48,13 @@ def _selected(raw: str) -> list[str]:
 def _fleet(args: argparse.Namespace) -> CloudFleet:
     key = os.getenv("CURSOR_API_KEY")
     if not key:
-        raise SystemExit("CURSOR_API_KEY is required for cloud orchestration")
+        raise SystemExit("CURSOR_API_KEY is required for orchestration")
     return CloudFleet(
         repo_url=args.repo_url,
         api_key=key,
         repo=Path.cwd(),
         starting_ref=args.starting_ref,
+        runtime=args.runtime,
     )
 
 
