@@ -6,7 +6,7 @@ set -euo pipefail
 SLICE=${1:-catalog}
 SERVICE=${2:-candidate-catalog}
 PORT=${3:-8001}
-REQUESTS=${REQUESTS:-200}
+REQUESTS=${REQUESTS:-40}   # passes over the recorded GETs per soak
 SOAK_SECONDS=${SOAK_SECONDS:-5}
 FACADE=${FACADE:-http://localhost:8080}
 LOG=strangler/logs/access.log
@@ -18,11 +18,24 @@ backend_mix() {
   tail -n +"$1" "$LOG" | awk -v s="route=$SLICE" '$0 ~ s {for(i=1;i<=NF;i++) if($i ~ /^backend=/) c[$i]++} END {for(k in c) printf "  %s %d\n", k, c[k]}'
 }
 
+# Idempotent (GET) requests for this slice from the recorded traffic, as façade-relative URLs.
+mapfile -t URLS < <("${PYTHON:-python3}" - "$SLICE" <<'PY'
+import sys, yaml
+from urllib.parse import urlencode
+for r in yaml.safe_load(open("traffic/requests.yaml"))[sys.argv[1]]:
+    if r.get("method", "GET").upper() == "GET":
+        q = urlencode({k: v for k, v in (r.get("query") or {}).items()})
+        print(r["path"] + ("?" + q if q else ""))
+PY
+)
+[ "${#URLS[@]}" -gt 0 ] || { echo "no GET requests recorded for slice $SLICE"; exit 1; }
+
 drive() {
   local mark; mark=$(( $(wc -l < "$LOG") + 1 ))
   for i in $(seq 1 "$REQUESTS"); do
-    curl -s --max-time 3 -o /dev/null -H "X-Request-Key: key-$i-$RANDOM" "$FACADE/api/catalog/products?q=mug&page=1" || true
-    curl -s --max-time 3 -o /dev/null "$FACADE/api/catalog/product?id=$(( i % 6 + 1 ))" || true
+    for url in "${URLS[@]}"; do
+      curl -s --max-time 3 -o /dev/null -H "X-Request-Key: key-$i-$RANDOM" "$FACADE$url" || true
+    done
   done
   backend_mix "$mark"
 }

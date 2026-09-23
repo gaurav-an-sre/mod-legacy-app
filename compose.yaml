@@ -39,6 +39,11 @@ services:
       DB_NAME: legacy_shop
       DB_USER: legacy
       DB_PASSWORD: legacy
+      # legacy = bug-for-bug LIKE (parity); enhanced = ranked Thai-aware search (search-eval).
+      SEARCH_MODE: "${SEARCH_MODE:-legacy}"
+      SEARCH_SYNONYMS: /search_eval/synonyms.yaml
+    volumes:
+      - ./search_eval/sawan_mart/synonyms.yaml:/search_eval/synonyms.yaml:ro
     depends_on:
       db:
         condition: service_healthy

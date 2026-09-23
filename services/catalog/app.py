@@ -91,8 +91,24 @@ def legacy_json(value: object, status: int = 200) -> Response:
 
 
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+def healthz() -> Response:
+    """Readiness: a candidate that cannot reach MySQL must not look promotable."""
+    try:
+        conn = pymysql.connect(
+            host=os.getenv("DB_HOST", "db"),
+            user=os.getenv("DB_USER", "legacy"),
+            password=os.getenv("DB_PASSWORD", "legacy"),
+            database=os.getenv("DB_NAME", "legacy_shop"),
+            connect_timeout=2,
+        )
+    except pymysql.MySQLError:
+        return legacy_json({"status": "degraded", "database": "unavailable"}, 503)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+    finally:
+        conn.close()
+    return legacy_json({"status": "ok", "database": "ok"})
 
 
 @app.get("/api/catalog/products")
