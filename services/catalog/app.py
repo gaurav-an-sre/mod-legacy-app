@@ -20,6 +20,8 @@ app = FastAPI(docs_url=None, redoc_url=None)
 # enhanced: Thai-aware ranked search (what search_eval measures); off until promoted.
 SEARCH_MODE = os.getenv("SEARCH_MODE", "legacy")
 SYNONYMS_PATH = os.getenv("SEARCH_SYNONYMS", "")
+# Enrichment layer (sku -> tags) the ranker may use; the products table has no tags column.
+TAGS_PATH = os.getenv("SEARCH_TAGS", "")
 
 LEADING_INT = re.compile(r"^\s*[+-]?\d+")
 
@@ -85,6 +87,18 @@ def load_synonyms() -> dict[str, list[str]]:
         return yaml.safe_load(handle) or {}
 
 
+def load_tags() -> dict[str, list[str]]:
+    if not TAGS_PATH or not os.path.exists(TAGS_PATH):
+        return {}
+    with open(TAGS_PATH, encoding="utf-8") as handle:
+        rows = yaml.safe_load(handle) or []
+    return {str(row["sku"]): list(row.get("tags", [])) for row in rows}
+
+
+def enrich(rows: list[dict[str, Any]], tags_by_sku: dict[str, list[str]]) -> list[dict[str, Any]]:
+    return [{**row, "tags": tags_by_sku.get(str(row.get("sku")), [])} for row in rows]
+
+
 def legacy_json(value: object, status: int = 200) -> Response:
     body = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return Response(content=body, status_code=status, media_type="application/json")
@@ -124,7 +138,9 @@ def catalog_products(request: Request) -> Response:
         with conn.cursor() as cur:
             if SEARCH_MODE == "enhanced" and query:
                 cur.execute("SELECT * FROM products ORDER BY id")
-                ranked = enhanced_search(query, cur.fetchall(), load_synonyms())
+                ranked = enhanced_search(
+                    query, enrich(cur.fetchall(), load_tags()), load_synonyms()
+                )
                 rows = ranked[offset : offset + per]
             else:
                 sql = (

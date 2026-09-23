@@ -1,17 +1,17 @@
 # Sawan Mart (fictional Thai grocer) catalog fixture for the search evaluation.
 # `tags` are the enrichment layer the enhanced ranker can use; legacy search only sees name/category.
-- {id: 1,  sku: SM-FS-001, name: "น้ำปลาตราปลาหมึก 700 มล.",     category: "เครื่องปรุง", tags: ["น้ำปลา", "fish sauce", "ซอส"],           description: "น้ำปลาแท้หมักธรรมชาติ"}
-- {id: 2,  sku: SM-FS-002, name: "ซีอิ๊วขาวสูตร 1 500 มล.",        category: "เครื่องปรุง", tags: ["ซีอิ๊ว", "soy sauce", "ซอส"],           description: "ซีอิ๊วขาวสำหรับผัดและหมัก"}
-- {id: 3,  sku: SM-DR-001, name: "โคคา-โคล่า 1.25 ลิตร",          category: "เครื่องดื่ม",  tags: ["โค้ก", "coke", "น้ำอัดลม", "cola"],     description: "น้ำอัดลมกลิ่นโคล่า"}
-- {id: 4,  sku: SM-DR-002, name: "เป๊ปซี่ 1.25 ลิตร",             category: "เครื่องดื่ม",  tags: ["เป๊ปซี่", "pepsi", "น้ำอัดลม", "cola"], description: "น้ำอัดลมกลิ่นโคล่า"}
-- {id: 5,  sku: SM-DR-003, name: "น้ำดื่มสิงห์ 600 มล. แพ็ก 12",    category: "เครื่องดื่ม",  tags: ["น้ำดื่ม", "น้ำเปล่า", "water"],         description: "น้ำดื่มสะอาดบรรจุขวด"}
-- {id: 6,  sku: SM-DA-001, name: "นมสดโฟร์โมสต์รสจืด 1 ลิตร",      category: "นมและไข่",    tags: ["นม", "นมสด", "milk"],                   description: "นมโคสด 100% พาสเจอร์ไรส์"}
-- {id: 7,  sku: SM-DA-002, name: "นมถั่วเหลืองไวตามิ้ลค์ 300 มล.",  category: "นมและไข่",    tags: ["นมถั่วเหลือง", "soy milk", "นม"],       description: "นมถั่วเหลืองสูตรดั้งเดิม"}
-- {id: 8,  sku: SM-DA-003, name: "ไข่ไก่เบอร์ 2 แพ็ก 10 ฟอง",       category: "นมและไข่",    tags: ["ไข่", "ไข่ไก่", "eggs"],                description: "ไข่ไก่สดจากฟาร์ม"}
-- {id: 9,  sku: SM-RI-001, name: "ข้าวหอมมะลิ 5 กก.",              category: "ข้าวและแป้ง",  tags: ["ข้าว", "ข้าวสาร", "jasmine rice"],       description: "ข้าวหอมมะลิใหม่ 100%"}
-- {id: 10, sku: SM-NO-001, name: "มาม่าต้มยำกุ้ง แพ็ก 6",           category: "อาหารแห้ง",   tags: ["มาม่า", "บะหมี่กึ่งสำเร็จรูป", "instant noodles"], description: "บะหมี่กึ่งสำเร็จรูปรสต้มยำกุ้ง"}
-- {id: 11, sku: SM-SN-001, name: "เลย์รสโนริสาหร่าย 50 ก.",         category: "ขนมขบเคี้ยว", tags: ["เลย์", "มันฝรั่งทอด", "chips", "ขนม"],   description: "มันฝรั่งทอดกรอบรสสาหร่าย"}
-- {id: 12, sku: SM-SN-002, name: "โอวัลตินคุกกี้ 90 ก.",            category: "ขนมขบเคี้ยว", tags: ["คุกกี้", "ขนม", "biscuit"],              description: "คุกกี้รสมอลต์"}
-- {id: 13, sku: SM-HH-001, name: "น้ำยาล้างจานซันไลต์ 500 มล.",      category: "ของใช้ในบ้าน", tags: ["น้ำยาล้างจาน", "dish soap"],            description: "น้ำยาล้างจานสูตรมะนาว"}
-- {id: 14, sku: SM-HH-002, name: "ผงซักฟอกบรีส 800 ก.",             category: "ของใช้ในบ้าน", tags: ["ผงซักฟอก", "detergent", "ซักผ้า"],      description: "ผงซักฟอกสูตรเข้มข้น"}
-- {id: 15, sku: SM-FR-001, name: "กล้วยหอมทอง หวี",                category: "ผักและผลไม้",  tags: ["กล้วย", "ผลไม้", "banana"],              description: "กล้วยหอมทองคัดพิเศษ"}
+- {id: 1,  sku: SM-FS-001, price_cents:   5900, name: "น้ำปลาตราปลาหมึก 700 มล.",     category: "เครื่องปรุง", tags: ["น้ำปลา", "fish sauce", "ซอส"],           description: "น้ำปลาแท้หมักธรรมชาติ"}
+- {id: 2,  sku: SM-FS-002, price_cents:   3500, name: "ซีอิ๊วขาวสูตร 1 500 มล.",        category: "เครื่องปรุง", tags: ["ซีอิ๊ว", "soy sauce", "ซอส"],           description: "ซีอิ๊วขาวสำหรับผัดและหมัก"}
+- {id: 3,  sku: SM-DR-001, price_cents:   3200, name: "โคคา-โคล่า 1.25 ลิตร",          category: "เครื่องดื่ม",  tags: ["โค้ก", "coke", "น้ำอัดลม", "cola"],     description: "น้ำอัดลมกลิ่นโคล่า"}
+- {id: 4,  sku: SM-DR-002, price_cents:   3000, name: "เป๊ปซี่ 1.25 ลิตร",             category: "เครื่องดื่ม",  tags: ["เป๊ปซี่", "pepsi", "น้ำอัดลม", "cola"], description: "น้ำอัดลมกลิ่นโคล่า"}
+- {id: 5,  sku: SM-DR-003, price_cents:   6500, name: "น้ำดื่มสิงห์ 600 มล. แพ็ก 12",    category: "เครื่องดื่ม",  tags: ["น้ำดื่ม", "น้ำเปล่า", "water"],         description: "น้ำดื่มสะอาดบรรจุขวด"}
+- {id: 6,  sku: SM-DA-001, price_cents:   5200, name: "นมสดโฟร์โมสต์รสจืด 1 ลิตร",      category: "นมและไข่",    tags: ["นม", "นมสด", "milk"],                   description: "นมโคสด 100% พาสเจอร์ไรส์"}
+- {id: 7,  sku: SM-DA-002, price_cents:   1500, name: "นมถั่วเหลืองไวตามิ้ลค์ 300 มล.",  category: "นมและไข่",    tags: ["นมถั่วเหลือง", "soy milk", "นม"],       description: "นมถั่วเหลืองสูตรดั้งเดิม"}
+- {id: 8,  sku: SM-DA-003, price_cents:   5500, name: "ไข่ไก่เบอร์ 2 แพ็ก 10 ฟอง",       category: "นมและไข่",    tags: ["ไข่", "ไข่ไก่", "eggs"],                description: "ไข่ไก่สดจากฟาร์ม"}
+- {id: 9,  sku: SM-RI-001, price_cents:  22900, name: "ข้าวหอมมะลิ 5 กก.",              category: "ข้าวและแป้ง",  tags: ["ข้าว", "ข้าวสาร", "jasmine rice"],       description: "ข้าวหอมมะลิใหม่ 100%"}
+- {id: 10, sku: SM-NO-001, price_cents:   3600, name: "มาม่าต้มยำกุ้ง แพ็ก 6",           category: "อาหารแห้ง",   tags: ["มาม่า", "บะหมี่กึ่งสำเร็จรูป", "instant noodles"], description: "บะหมี่กึ่งสำเร็จรูปรสต้มยำกุ้ง"}
+- {id: 11, sku: SM-SN-001, price_cents:   2000, name: "เลย์รสโนริสาหร่าย 50 ก.",         category: "ขนมขบเคี้ยว", tags: ["เลย์", "มันฝรั่งทอด", "chips", "ขนม"],   description: "มันฝรั่งทอดกรอบรสสาหร่าย"}
+- {id: 12, sku: SM-SN-002, price_cents:   2500, name: "โอวัลตินคุกกี้ 90 ก.",            category: "ขนมขบเคี้ยว", tags: ["คุกกี้", "ขนม", "biscuit"],              description: "คุกกี้รสมอลต์"}
+- {id: 13, sku: SM-HH-001, price_cents:   4200, name: "น้ำยาล้างจานซันไลต์ 500 มล.",      category: "ของใช้ในบ้าน", tags: ["น้ำยาล้างจาน", "dish soap"],            description: "น้ำยาล้างจานสูตรมะนาว"}
+- {id: 14, sku: SM-HH-002, price_cents:   9900, name: "ผงซักฟอกบรีส 800 ก.",             category: "ของใช้ในบ้าน", tags: ["ผงซักฟอก", "detergent", "ซักผ้า"],      description: "ผงซักฟอกสูตรเข้มข้น"}
+- {id: 15, sku: SM-FR-001, price_cents:   3900, name: "กล้วยหอมทอง หวี",                category: "ผักและผลไม้",  tags: ["กล้วย", "ผลไม้", "banana"],              description: "กล้วยหอมทองคัดพิเศษ"}

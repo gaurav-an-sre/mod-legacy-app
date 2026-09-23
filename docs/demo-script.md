@@ -8,10 +8,13 @@ Pre-flight (do this 15 minutes before, not on stage):
 
 ```sh
 make up && make seed                # legacy + candidate-catalog + façade + console
+make seed-sawan                     # Thai Sawan Mart products into MySQL (ids 101+, db/ untouched)
+SEARCH_MODE=enhanced docker compose up -d candidate-catalog   # candidate serves the enhanced ranker
 make parity SLICE=catalog           # parity/catalog.json  -> 10/10
 make search-eval SLICE=catalog      # search_eval/catalog.json -> 0.42 -> 1.00
 python -m orchestrator status       # out/state.json has the catalog agent
 open http://localhost:8080/_migration/
+open http://localhost:8080/_migration/shop   # Sawan Mart storefront: legacy | candidate | façade
 ```
 
 Keep two windows: the console (auto-refreshes every 3 s) and a terminal.
@@ -50,9 +53,15 @@ curl 'localhost:8080/api/catalog/products?q=mug'        # the legacy API, served
 make search-eval SLICE=catalog                          # legacy ranking on the Thai golden set: tone_marks 0.000, overall 0.421
 ```
 
-(The Compose seed is the monolith's own English fixture; the Thai product set
-lives in `search_eval/sawan_mart/` and is replayed through the same legacy
-matching rules, so the 0 % is the legacy algorithm's number, not a data gap.)
+Then the **Sawan Mart storefront** (`/_migration/shop`): type `โค้ก`. Legacy
+column: 0 results. Candidate column: Coca-Cola, Pepsi. Façade column ("what
+shoppers get now"): 0 results, badge *served by legacy* — the weight is 0. Try
+`นํ้าปลา` (tone marks typed the wrong way): same picture. Leave this tab open;
+it comes back in the cutover.
+
+(`make seed-sawan` loads the same Thai product set the golden queries use,
+from `search_eval/sawan_mart/`, into the live MySQL at ids 101+ without
+touching `db/`; the legacy PHP and the candidate read the same rows.)
 
 Open `AGENTS.md` (4 lines) and `.cursor/hooks.json`. Say:
 
@@ -121,7 +130,7 @@ make parity SLICE=catalog
 > subagent iterates until it passes, up to a bounded number of attempts.
 
 Then scroll to *Sawan Mart search eval*: **legacy 42% → enhanced 100%**,
-per-category table (tone_marks 0 → 100, synonyms 17 → 100, semantic 33 → 100).
+per-category table (tone_marks 0 → 100, synonyms 17 → 100, concept 33 → 100).
 
 ```sh
 make search-eval SLICE=catalog
@@ -150,7 +159,11 @@ Narrate as the bar moves and the request counters change:
 4. **promote → 5 → 50 → 100** — each step soaks and compares candidate 5xx rate
    against legacy 5xx rate; console shows `RAMPING 50%` and the observed share
    converging on the weight.
-5. **rollback** — one command, bar drops to 0, counters swing back to legacy.
+   Switch to the storefront tab and re-run `โค้ก`: at 100 % the façade column
+   now shows Coke and Pepsi with the badge *served by candidate* — shoppers just
+   got the better search, and nobody edited nginx by hand.
+5. **rollback** — one command, bar drops to 0, counters swing back to legacy;
+   the storefront's façade column is back to 0 results, *served by legacy*.
 6. **failure drill** — the script stops the candidate and tries to promote:
    `refusing promotion: candidate error rate 0.016 exceeds legacy 0.000`.
 

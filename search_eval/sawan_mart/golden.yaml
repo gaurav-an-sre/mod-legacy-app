@@ -24,6 +24,6 @@ queries:
   - {q: "มาม",           category: autocomplete, expect: [10]}
   - {q: "กล้",           category: autocomplete, expect: [15]}
   # Intent-style queries (what the user wants, not what the label says).
-  - {q: "ของว่าง",       category: semantic,   expect: [11, 12]}
-  - {q: "ซักผ้า",        category: semantic,   expect: [14]}
-  - {q: "ผลไม้",         category: semantic,   expect: [15]}
+  - {q: "ของว่าง",       category: concept,    expect: [11, 12]}
+  - {q: "ซักผ้า",        category: concept,    expect: [14]}
+  - {q: "ผลไม้",         category: concept,    expect: [15]}
