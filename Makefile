@@ -3,7 +3,7 @@ PYTHON := .venv/bin/python
 COMPOSE := docker compose
 SLICE ?= catalog
 
-.PHONY: up render seed parity promote rollback down test lint
+.PHONY: up render seed parity promote rollback cutover-demo down test lint
 
 render:
 	$(PYTHON) strangler/render.py
@@ -23,6 +23,9 @@ promote:
 
 rollback:
 	$(PYTHON) tools/cutover.py rollback --slice $(SLICE)
+
+cutover-demo:
+	PYTHON=$(PYTHON) tools/cutover_demo.sh $(SLICE)
 
 down:
 	$(COMPOSE) down

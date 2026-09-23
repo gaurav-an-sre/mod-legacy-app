@@ -22,7 +22,8 @@ def test_routes_render_weighted_backend_and_mirror(tmp_path: Path) -> None:
     rendered = output.read_text(encoding="utf-8")
     assert "split_clients" in rendered
     assert "mirror /_shadow_catalog" in rendered
-    assert "upstream candidate_catalog_upstream { server fake-candidate:8000; }" in rendered
+    assert "candidate http://candidate-catalog:8001;" in rendered
+    assert "resolver 127.0.0.11" in rendered
     assert "backend=$migration_backend" in rendered
     assert "0% candidate" not in rendered
 
@@ -69,7 +70,7 @@ def test_incomplete_candidate_renders_as_legacy(tmp_path: Path) -> None:
     output = tmp_path / "nginx.conf"
     render_routes(routes, output)
     rendered = output.read_text(encoding="utf-8")
-    assert "candidate_x_upstream" not in rendered
+    assert "$x_upstream" not in rendered
     assert "location = /api/broken" in rendered
     assert "proxy_pass http://legacy_upstream;" in rendered
 
@@ -468,7 +469,7 @@ def test_promote_allows_real_catalog_candidate(
     )
     report = tmp_path / "catalog.json"
     report.write_text(
-        json.dumps({"candidate_url": "http://fake-candidate:8000", "match_rate": 1.0}),
+        json.dumps({"candidate_url": "http://candidate-catalog:8001", "match_rate": 1.0}),
         encoding="utf-8",
     )
     monkeypatch.setattr("tools.cutover.subprocess.run", lambda *_args, **_kwargs: None)

@@ -32,17 +32,27 @@ pricing behavior.
 
 ## Parity and cutover demo
 
+`services/catalog/` is the first real extracted slice (built by a Cursor Cloud
+Agent) and `strangler/routes.yaml` already points `catalog` at it at weight 0.
+`make cutover-demo` rehearses the whole lifecycle against the live stack:
+health check, fresh parity measurement, controller-owned registration, soak at
+0%, gated promotion 5 → 50 → 100 with real traffic counted per backend from the
+façade's own log, and rollback. `FAILURE_DRILL=1 make cutover-demo` additionally
+stops the candidate at 5%, shows `promote` refusing because candidate 5xx
+exceeds legacy, and rolls back; the façade resolves candidates through Docker
+DNS per request, so rollback works even when the candidate container is gone.
+
 The candidate in `tests/fixtures/fake_candidate/` is not an extracted service.
 It is a tiny fixture used to make the platform verifiable without a Cursor
 agent. It deliberately returns a differently rounded price by default.
 
 ```sh
-# The candidate is divergent, so this writes parity/catalog.json and exits 1.
+# Replay recorded traffic against the real catalog candidate (CANDIDATE_URL in compose.yaml).
 make parity
 
-# Point the fixture at matching responses, then replay.
-FAKE_DIVERGE=0 docker compose up -d --build fake-candidate
-make parity
+# To see the gate fail, point it at the divergent fixture instead.
+docker compose --profile tools run --rm -e CANDIDATE_URL=http://fake-candidate:8000 parity \
+  python tools/parity.py --slice catalog
 
 # Promote through 5%, 50%, and 100%; each command advances one step.
 make promote
