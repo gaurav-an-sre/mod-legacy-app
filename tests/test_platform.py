@@ -588,6 +588,8 @@ def test_hooks_json_uses_cursor_schema() -> None:
         ({"command": "echo x > seed.sql", "cwd": "/w/db/", "workspace_roots": ["/w"]}, "deny"),
         ({"command": "pytest", "cwd": "/w/services/catalog", "workspace_roots": ["/w"]}, "allow"),
         ({"command": "docker compose up -d db", "cwd": "/w", "workspace_roots": ["/w"]}, "allow"),
+        ({"command": "find . -delete", "cwd": "/w/legacy", "workspace_roots": ["/w"]}, "deny"),
+        ({"command": "cat index.php", "cwd": "/w/legacy", "workspace_roots": ["/w"]}, "allow"),
     ],
 )
 def test_protected_paths_hook(payload: dict, permission: str) -> None:

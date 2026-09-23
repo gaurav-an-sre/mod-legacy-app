@@ -88,7 +88,8 @@ def stream_run(
     (it raises `agent_busy` until then) and ask it to restate its final reply.
     """
     text, run_id, status = _consume(run, label, events_path, "w")
-    if text or status in TERMINAL or agent is None:
+    completed = status in TERMINAL or (not status and bool(text))
+    if completed or agent is None:
         return text, run_id
     print(f"[{label}] stream dropped mid-run; reattaching to the agent", flush=True)
     while True:

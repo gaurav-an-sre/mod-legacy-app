@@ -23,10 +23,11 @@ PROTECTED = (
 
 PROTECTED_DIRS = ("legacy", "db")
 
-# A command is read-only only if it is a single simple command with a read-only
-# verb: any pipe, redirect, separator or substitution disqualifies the whole line.
+# A command is read-only only if it is a single simple command whose verb cannot
+# write (so no `find -delete`, no `sed -i`): any pipe, redirect, separator or
+# substitution disqualifies the whole line.
 READ_ONLY_SHELL = re.compile(
-    r"^\s*(cat|less|head|tail|grep|rg|ls|find|diff|git\s+(diff|log|show|status))\b"
+    r"^\s*(cat|less|head|tail|grep|rg|ls|diff|git\s+(diff|log|show|status))\b"
 )
 SHELL_COMPOUND = re.compile(r"[|;&<>`\n]|\$\(")
 CD_INTO_PROTECTED = re.compile(r"\bcd\s+(?:\S*/)?(legacy|db)(?:/|\s|$)")

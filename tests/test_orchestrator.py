@@ -708,7 +708,7 @@ def test_stream_run_reattaches_when_cloud_stream_drops(tmp_path: Path) -> None:
             return _Run('{"branch": "migrate/catalog"}', "finished", "run-2")
 
     text, run_id = stream_run(
-        _Run("", ""),
+        _Run('{"branch": "mig', "running"),
         "catalog/extract",
         tmp_path / "extract.jsonl",
         agent=_Agent(),
