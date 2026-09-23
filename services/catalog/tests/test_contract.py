@@ -174,3 +174,30 @@ def test_database_outage_returns_legacy_503(_: MagicMock) -> None:
     response = client.get("/api/catalog/products")
     assert response.status_code == 503
     assert response.text == "Database unavailable"
+
+
+@patch("app.connect_db")
+def test_enhanced_mode_ranks_instead_of_like(mock_connect: MagicMock, monkeypatch) -> None:
+    import app as catalog_app
+
+    monkeypatch.setattr(catalog_app, "SEARCH_MODE", "enhanced")
+    mug = dict(SEED_ROW)
+    cable = dict(
+        SEED_ROW,
+        id=2,
+        sku="CABLE-USB",
+        name="USB-C Cable",
+        category="electronics",
+        description="One metre braided cable.",
+    )
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [mug, cable]
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_connect.return_value = conn
+
+    response = client.get("/api/catalog/products", params={"q": "MUG"})
+    assert response.status_code == 200
+    assert [p["id"] for p in response.json()["products"]] == [1]
+    assert "LIKE" not in cursor.execute.call_args.args[0]

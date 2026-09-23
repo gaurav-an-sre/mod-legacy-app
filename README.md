@@ -96,6 +96,26 @@ the façade.
 Every `make` target that takes a slice honours `SLICE` (default `catalog`), for
 example `make parity SLICE=orders` or `make promote SLICE=reports`.
 
+## Search evaluation (Sawan Mart)
+
+Parity proves the candidate is bug-for-bug legacy. `make search-eval` is the
+second deterministic gate: it proves the candidate's *enhanced* search is
+better without regressing. `search_eval/sawan_mart/` holds a fixed Thai grocery
+catalog, a synonym map, and golden queries grouped by category — exact,
+missing/reordered tone marks (`นำปลา`, `นํ้าปลา` → `น้ำปลา`), brand/generic
+synonyms (`โค้ก` → Coca-Cola), autocomplete prefixes, and intent queries such as
+`ของว่าง` (snacks). `tools/search_eval.py` scores recall@3 for the legacy
+`LIKE '%q%'` behaviour and for `services/catalog/search.py`, writes
+`search_eval/catalog.json`, and exits non-zero if the enhanced score is below
+the threshold or is worse than legacy in any category. No model is involved, so
+the same fixtures give the same numbers on every run and in CI.
+
+The candidate serves legacy behaviour by default (`SEARCH_MODE=legacy`, which is
+what parity measures). Setting `SEARCH_MODE=enhanced` (and optionally
+`SEARCH_SYNONYMS=/path/to/synonyms.yaml`) on the `candidate-catalog` service
+switches `/api/catalog/products?q=` to the ranked, tone-mark-insensitive search
+once the slice is at 100%.
+
 ## Cursor agent handoff
 
 `services/` intentionally contains only a README. Extraction agents should

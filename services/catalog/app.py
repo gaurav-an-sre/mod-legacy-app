@@ -9,10 +9,17 @@ import time
 from typing import Any
 
 import pymysql
+import yaml
 from fastapi import FastAPI, Request
+from search import enhanced_search
 from starlette.responses import PlainTextResponse, Response
 
 app = FastAPI(docs_url=None, redoc_url=None)
+
+# legacy: bug-for-bug LIKE '%q%' (what the parity gate measures).
+# enhanced: Thai-aware ranked search (what search_eval measures); off until promoted.
+SEARCH_MODE = os.getenv("SEARCH_MODE", "legacy")
+SYNONYMS_PATH = os.getenv("SEARCH_SYNONYMS", "")
 
 LEADING_INT = re.compile(r"^\s*[+-]?\d+")
 
@@ -71,6 +78,13 @@ def connect_db() -> pymysql.connections.Connection:
             time.sleep(0.25)
 
 
+def load_synonyms() -> dict[str, list[str]]:
+    if not SYNONYMS_PATH or not os.path.exists(SYNONYMS_PATH):
+        return {}
+    with open(SYNONYMS_PATH, encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
 def legacy_json(value: object, status: int = 200) -> Response:
     body = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return Response(content=body, status_code=status, media_type="application/json")
@@ -92,13 +106,18 @@ def catalog_products(request: Request) -> Response:
     conn = connect_db()
     try:
         with conn.cursor() as cur:
-            sql = (
-                "SELECT * FROM products WHERE name LIKE %s OR category LIKE %s "
-                "ORDER BY id LIMIT %s OFFSET %s"
-            )
-            pattern = f"%{query}%"
-            cur.execute(sql, (pattern, pattern, per, offset))
-            rows = cur.fetchall()
+            if SEARCH_MODE == "enhanced" and query:
+                cur.execute("SELECT * FROM products ORDER BY id")
+                ranked = enhanced_search(query, cur.fetchall(), load_synonyms())
+                rows = ranked[offset : offset + per]
+            else:
+                sql = (
+                    "SELECT * FROM products WHERE name LIKE %s OR category LIKE %s "
+                    "ORDER BY id LIMIT %s OFFSET %s"
+                )
+                pattern = f"%{query}%"
+                cur.execute(sql, (pattern, pattern, per, offset))
+                rows = cur.fetchall()
     finally:
         conn.close()
 

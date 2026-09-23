@@ -1,0 +1,387 @@
+{
+  "slice": "catalog",
+  "fixture": "search_eval/sawan_mart",
+  "k": 3,
+  "threshold": 0.9,
+  "passed": true,
+  "regressions": [],
+  "summary": {
+    "legacy": {
+      "exact": 1.0,
+      "overall": 0.421,
+      "tone_marks": 0.0,
+      "synonyms": 0.167,
+      "autocomplete": 1.0,
+      "semantic": 0.333
+    },
+    "enhanced": {
+      "exact": 1.0,
+      "overall": 1.0,
+      "tone_marks": 1.0,
+      "synonyms": 1.0,
+      "autocomplete": 1.0,
+      "semantic": 1.0
+    }
+  },
+  "queries": [
+    {
+      "q": "น้ำปลา",
+      "category": "exact",
+      "expect": [
+        1
+      ],
+      "legacy": {
+        "top": [
+          1
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          1
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "ข้าวหอมมะลิ",
+      "category": "exact",
+      "expect": [
+        9
+      ],
+      "legacy": {
+        "top": [
+          9
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          9
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "เครื่องดื่ม",
+      "category": "exact",
+      "expect": [
+        3,
+        4,
+        5
+      ],
+      "legacy": {
+        "top": [
+          3,
+          4,
+          5
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          3,
+          4,
+          5
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "นำปลา",
+      "category": "tone_marks",
+      "expect": [
+        1
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          1
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "นํ้าปลา",
+      "category": "tone_marks",
+      "expect": [
+        1
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          1
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "ซีอิว",
+      "category": "tone_marks",
+      "expect": [
+        2
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          2
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "เปปซี",
+      "category": "tone_marks",
+      "expect": [
+        4
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          4
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "โค้ก",
+      "category": "synonyms",
+      "expect": [
+        3
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          3,
+          4
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "coke",
+      "category": "synonyms",
+      "expect": [
+        3
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          3
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "น้ำอัดลม",
+      "category": "synonyms",
+      "expect": [
+        3,
+        4
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          3,
+          4
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "น้ำเปล่า",
+      "category": "synonyms",
+      "expect": [
+        5
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          5
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "milk",
+      "category": "synonyms",
+      "expect": [
+        6,
+        7
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          6,
+          7
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "ล้างจาน",
+      "category": "synonyms",
+      "expect": [
+        13
+      ],
+      "legacy": {
+        "top": [
+          13
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          13
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "นม",
+      "category": "autocomplete",
+      "expect": [
+        6,
+        7
+      ],
+      "legacy": {
+        "top": [
+          6,
+          7,
+          8
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          6,
+          7,
+          8
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "มาม",
+      "category": "autocomplete",
+      "expect": [
+        10
+      ],
+      "legacy": {
+        "top": [
+          10
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          10
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "กล้",
+      "category": "autocomplete",
+      "expect": [
+        15
+      ],
+      "legacy": {
+        "top": [
+          15
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          15,
+          3,
+          4
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "ของว่าง",
+      "category": "semantic",
+      "expect": [
+        11,
+        12
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          11,
+          12
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "ซักผ้า",
+      "category": "semantic",
+      "expect": [
+        14
+      ],
+      "legacy": {
+        "top": [],
+        "recall": 0.0
+      },
+      "enhanced": {
+        "top": [
+          14
+        ],
+        "recall": 1.0
+      }
+    },
+    {
+      "q": "ผลไม้",
+      "category": "semantic",
+      "expect": [
+        15
+      ],
+      "legacy": {
+        "top": [
+          15
+        ],
+        "recall": 1.0
+      },
+      "enhanced": {
+        "top": [
+          15
+        ],
+        "recall": 1.0
+      }
+    }
+  ]
+}

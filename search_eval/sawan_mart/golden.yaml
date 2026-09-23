@@ -1,0 +1,29 @@
+# Golden queries: `expect` lists the product ids that must appear in the top `k` results.
+# Categories are reported separately so the delta legacy -> enhanced is visible per failure mode.
+k: 3
+threshold: 0.9   # enhanced recall@k must reach this AND must not regress below legacy
+queries:
+  # Exact substrings: legacy LIKE already handles these; enhanced must not regress.
+  - {q: "น้ำปลา",        category: exact,      expect: [1]}
+  - {q: "ข้าวหอมมะลิ",    category: exact,      expect: [9]}
+  - {q: "เครื่องดื่ม",    category: exact,      expect: [3, 4, 5]}
+  # Tone-mark / spelling variants shoppers actually type.
+  - {q: "นำปลา",         category: tone_marks, expect: [1]}     # missing mai tho
+  - {q: "นํ้าปลา",        category: tone_marks, expect: [1]}     # nikhahit+mai tho instead of sara am
+  - {q: "ซีอิว",         category: tone_marks, expect: [2]}
+  - {q: "เปปซี",         category: tone_marks, expect: [4]}
+  # Synonyms / brand-vs-generic.
+  - {q: "โค้ก",          category: synonyms,   expect: [3]}
+  - {q: "coke",          category: synonyms,   expect: [3]}
+  - {q: "น้ำอัดลม",       category: synonyms,   expect: [3, 4]}
+  - {q: "น้ำเปล่า",       category: synonyms,   expect: [5]}
+  - {q: "milk",          category: synonyms,   expect: [6, 7]}
+  - {q: "ล้างจาน",       category: synonyms,   expect: [13]}
+  # Autocomplete: partial prefixes.
+  - {q: "นม",            category: autocomplete, expect: [6, 7]}
+  - {q: "มาม",           category: autocomplete, expect: [10]}
+  - {q: "กล้",           category: autocomplete, expect: [15]}
+  # Intent-style queries (what the user wants, not what the label says).
+  - {q: "ของว่าง",       category: semantic,   expect: [11, 12]}
+  - {q: "ซักผ้า",        category: semantic,   expect: [14]}
+  - {q: "ผลไม้",         category: semantic,   expect: [15]}
