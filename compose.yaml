@@ -32,6 +32,17 @@ services:
     environment:
       FAKE_DIVERGE: "${FAKE_DIVERGE:-1}"
 
+  candidate-catalog:
+    build: ./services/catalog
+    environment:
+      DB_HOST: db
+      DB_NAME: legacy_shop
+      DB_USER: legacy
+      DB_PASSWORD: legacy
+    depends_on:
+      db:
+        condition: service_healthy
+
   console:
     build:
       context: .
@@ -59,7 +70,7 @@ services:
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       LEGACY_URL: http://legacy
-      CANDIDATE_URL: http://fake-candidate:8000
+      CANDIDATE_URL: http://candidate-catalog:8001
     volumes:
       - .:/workspace
     working_dir: /workspace
