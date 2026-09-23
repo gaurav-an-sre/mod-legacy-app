@@ -17,8 +17,8 @@ $legacy_routes
    it in `notes` instead of fixing it.
 2. Do not change the database schema, and do not migrate or copy data. The new service reads and
    writes the same MySQL tables as the monolith through `$db_dsn_env`. Owning the data comes later.
-3. Register your routes in `strangler/routes.yaml` with `weight: 0`. Weight is moved by the cutover
-   controller after the parity gate passes, never by you.
+3. Do not touch `strangler/routes.yaml`. The cutover controller registers your candidate and moves
+   weight after the parity gate passes; you only report `service_name` and `container_port`.
 4. Preserve the legacy contract exactly, bug-for-bug: same status codes, same response body shape,
    same field names and types, same ordering, same behaviour on bad input. Where legacy emits
    something odd, reproduce it and note it. You are not improving behaviour in this run.
@@ -30,7 +30,12 @@ $legacy_routes
 - A compose entry so the service comes up alongside the monolith and MySQL.
 - Tests that assert the legacy contract for every route in scope, including the failure cases you
   found in the legacy code (missing parameters, unknown ids, empty results).
-- The `weight: 0` entries in `strangler/routes.yaml`.
+
+## How to work
+
+Follow the `extract-slice` skill. Delegate the build to the `extractor` subagent, the replay loop to
+`parity-fixer`, and the final check to the read-only `reviewer`. Repository hooks deny writes to the
+protected paths; a denied write means your approach is wrong, not that you need another way in.
 
 ## Before you answer
 

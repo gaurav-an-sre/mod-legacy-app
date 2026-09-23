@@ -1,9 +1,17 @@
 {
+  "version": 1,
   "hooks": {
-    "pre_tool_use": [
+    "preToolUse": [
       {
-        "matcher": "Write|Edit|Delete",
-        "command": "python3 .cursor/hooks/deny_protected_writes.py"
+        "matcher": "Write|Delete",
+        "command": "python3 .cursor/hooks/deny_protected_writes.py",
+        "failClosed": true
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "python3 .cursor/hooks/deny_protected_writes.py",
+        "failClosed": true
       }
     ]
   }

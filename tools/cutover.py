@@ -1,4 +1,4 @@
-"""Promote or roll back a slice in the strangler façade."""
+"""Register, promote or roll back a slice in the strangler façade."""
 
 from __future__ import annotations
 
@@ -146,9 +146,37 @@ def rollback(
     print(f"{slice_name}: rolled back to weight 0")
 
 
+def register(
+    slice_name: str,
+    service_name: str,
+    container_port: int,
+    routes_path: Path = Path("strangler/routes.yaml"),
+    repo: Path = Path("."),
+    reload: bool = True,
+) -> None:
+    """Point a slice at its candidate service at weight 0; weights never move here."""
+    config = _load_routes(routes_path)
+    if slice_name not in config["slices"]:
+        raise SystemExit(f"unknown slice: {slice_name}")
+    slice_config = config["slices"][slice_name]
+    slice_config["candidate"] = f"{service_name}:{container_port}"
+    slice_config["upstream"] = f"candidate_{slice_name}"
+    slice_config["weight"] = 0
+    routes_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    subprocess.run([sys.executable, "strangler/render.py"], cwd=repo, check=True)
+    if reload:
+        _reload(repo)
+    print(f"{slice_name}: candidate {service_name}:{container_port} registered at weight 0")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+    register_parser = subparsers.add_parser("register")
+    register_parser.add_argument("--slice", required=True)
+    register_parser.add_argument("--service", required=True)
+    register_parser.add_argument("--port", type=int, required=True)
+    register_parser.add_argument("--no-reload", action="store_true")
     promote_parser = subparsers.add_parser("promote")
     promote_parser.add_argument("--slice", required=True)
     promote_parser.add_argument("--threshold", type=float, default=0.99)
@@ -156,7 +184,9 @@ def main() -> None:
     rollback_parser = subparsers.add_parser("rollback")
     rollback_parser.add_argument("--slice", required=True)
     args = parser.parse_args()
-    if args.command == "promote":
+    if args.command == "register":
+        register(args.slice, args.service, args.port, reload=not args.no_reload)
+    elif args.command == "promote":
         promote(args.slice, threshold=args.threshold, soak_seconds=args.soak_seconds)
     else:
         rollback(args.slice)

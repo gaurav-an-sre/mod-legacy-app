@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
+
+from cursor_sdk.errors import AgentBusyError
+
+TERMINAL = {"finished", "error", "cancelled", "expired"}
+REATTACH_POLL_SECONDS = 20.0
+REATTACH_PROMPT = (
+    "Your previous turn finished while the controller was disconnected. Do not run any "
+    "tools. Reply with exactly the final JSON object from that turn and nothing else."
+)
 
 
 def _jsonable(value: Any) -> Any:
@@ -36,11 +46,10 @@ def _field(message: Any, *names: str) -> Any:
     return None
 
 
-def stream_run(run: Any, label: str, events_path: Path) -> tuple[str, str]:
-    """Persist the run's events to JSONL and summarize them live; return (text, run_id)."""
+def _consume(run: Any, label: str, events_path: Path, mode: str) -> tuple[str, str, str]:
     events_path.parent.mkdir(parents=True, exist_ok=True)
     assistant = ""
-    with events_path.open("w", encoding="utf-8") as events:
+    with events_path.open(mode, encoding="utf-8") as events:
         for message in run.stream():
             events.write(json.dumps(_jsonable(message), default=str) + "\n")
             kind = getattr(message, "type", "event")
@@ -56,6 +65,38 @@ def stream_run(run: Any, label: str, events_path: Path) -> tuple[str, str]:
                 print(f"[{label}] status {status}", flush=True)
     result = run.wait()
     final = getattr(result, "result", "") or assistant
-    run_id = str(getattr(result, "run_id", "") or getattr(run, "run_id", ""))
-    print(f"[{label}] run {run_id or 'unknown'} finished", flush=True)
-    return str(final), run_id
+    run_id = str(_field(result, "id", "run_id") or _field(run, "id", "run_id") or "")
+    status = str(getattr(result, "status", "") or "").lower()
+    print(f"[{label}] run {run_id or 'unknown'} stream ended ({status or 'no status'})", flush=True)
+    return str(final), run_id, status
+
+
+def stream_run(
+    run: Any,
+    label: str,
+    events_path: Path,
+    *,
+    agent: Any = None,
+    poll_seconds: float = REATTACH_POLL_SECONDS,
+    sleep: Any = time.sleep,
+) -> tuple[str, str]:
+    """Persist the run's events to JSONL and summarize them live; return (text, run_id).
+
+    Cloud streams can drop while the agent is still working (a long docker build,
+    for example). The agent is the durable object, not the socket: when the stream
+    ends without a terminal result we wait until the agent accepts a new message
+    (it raises `agent_busy` until then) and ask it to restate its final reply.
+    """
+    text, run_id, status = _consume(run, label, events_path, "w")
+    completed = status in TERMINAL or (not status and bool(text))
+    if completed or agent is None:
+        return text, run_id
+    print(f"[{label}] stream dropped mid-run; reattaching to the agent", flush=True)
+    while True:
+        try:
+            follow_up = agent.send(REATTACH_PROMPT)
+        except AgentBusyError:
+            sleep(poll_seconds)
+            continue
+        text, _, _ = _consume(follow_up, label, events_path, "a")
+        return text, run_id

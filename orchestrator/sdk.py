@@ -8,6 +8,7 @@ unavailable inside the cloud sandbox.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ class CloudFleet:
     starting_ref: str = "main"
     model: str = MODEL
     auto_create_pr: bool = True
+    runtime: str = "cloud"
     client: Any = None
 
     def _sdk(self) -> Any:
@@ -67,6 +69,8 @@ class CloudFleet:
         starting_ref: str | None = None,
     ) -> Any:
         sdk = self._sdk()
+        if self.runtime == "local":
+            return self._create_local_agent(slice_name, mcp_servers=mcp_servers)
         cloud = sdk.CloudAgentOptions(
             repos=[
                 sdk.CloudRepository(
@@ -100,6 +104,39 @@ class CloudFleet:
             return sdk.Agent.create(options=options)
         except (TypeError, AttributeError, ImportError):
             return self._resolve_client().create_agent(options=options)
+
+    def local_worktree(self, slice_name: str) -> Path:
+        """A detached git worktree on `migrate/<slice>` so a local agent mirrors the cloud VM."""
+        worktree = self.repo / ".work" / slice_name
+        branch = f"migrate/{slice_name}"
+        if not worktree.exists():
+            worktree.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["git", "worktree", "add", "-B", branch, str(worktree), self.starting_ref],
+                cwd=self.repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        return worktree
+
+    def _create_local_agent(
+        self, slice_name: str, *, mcp_servers: dict[str, Any] | None = None
+    ) -> Any:
+        """Same agent, same repo hooks/skills/subagents, local runtime instead of a cloud VM."""
+        sdk = self._sdk()
+        options = sdk.AgentOptions(
+            model=self.model,
+            api_key=self.api_key,
+            name=f"migrate {slice_name}",
+            local=sdk.LocalAgentOptions(
+                cwd=str(self.local_worktree(slice_name)),
+                setting_sources=["project"],
+                sandbox_options=sdk.SandboxOptions(enabled=True),
+            ),
+            mcp_servers=mcp_servers,
+        )
+        return sdk.Agent.create(options=options)
 
     def resume_agent(self, agent_id: str) -> Any:
         sdk = self._sdk()
