@@ -112,7 +112,7 @@ the same fixtures give the same numbers on every run and in CI.
 
 The candidate serves legacy behaviour by default (`SEARCH_MODE=legacy`, which is
 what parity measures). Setting `SEARCH_MODE=enhanced` (and optionally
-`SEARCH_SYNONYMS=/path/to/synonyms.yaml`) on the `candidate-catalog` service
+`SEARCH_SYNONYMS`; `compose.yaml` wires both, so `SEARCH_MODE=enhanced docker compose up -d candidate-catalog` is enough) on the `candidate-catalog` service
 switches `/api/catalog/products?q=` to the ranked, tone-mark-insensitive search
 once the slice is at 100%.
 

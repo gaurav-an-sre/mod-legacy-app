@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pymysql
 from app import DatabaseUnavailable, app, money, product_row
 from fastapi.testclient import TestClient
 
@@ -21,10 +22,20 @@ SEED_ROW = {
 }
 
 
-def test_healthz() -> None:
+@patch("app.pymysql.connect")
+def test_healthz_reports_database_ok(mock_connect: MagicMock) -> None:
     response = client.get("/healthz")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "database": "ok"}
+    mock_connect.return_value.close.assert_called_once()
+
+
+@patch("app.pymysql.connect")
+def test_healthz_is_503_when_database_unreachable(mock_connect: MagicMock) -> None:
+    mock_connect.side_effect = pymysql.OperationalError(2003, "down")
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    assert response.json() == {"status": "degraded", "database": "unavailable"}
 
 
 def test_money_format() -> None:
