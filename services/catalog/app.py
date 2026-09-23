@@ -2,15 +2,36 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import time
 from typing import Any
 
 import pymysql
 from fastapi import FastAPI, Request
-from starlette.responses import Response
+from starlette.responses import PlainTextResponse, Response
 
 app = FastAPI(docs_url=None, redoc_url=None)
+
+LEADING_INT = re.compile(r"^\s*[+-]?\d+")
+
+
+class DatabaseUnavailable(Exception):
+    pass
+
+
+@app.exception_handler(DatabaseUnavailable)
+def database_unavailable(_: Request, __: DatabaseUnavailable) -> Response:
+    return PlainTextResponse("Database unavailable", status_code=503)
+
+
+def php_int(value: str | None, default: int) -> int:
+    """PHP `(int)` cast: leading integer prefix or 0, never a validation error."""
+    if value is None:
+        return default
+    match = LEADING_INT.match(value)
+    return int(match.group(0)) if match else 0
 
 
 def money(cents: int) -> str:
@@ -46,13 +67,11 @@ def connect_db() -> pymysql.connections.Connection:
         except pymysql.MySQLError:
             attempts += 1
             if attempts >= 30:
-                raise
+                raise DatabaseUnavailable from None
             time.sleep(0.25)
 
 
 def legacy_json(value: object, status: int = 200) -> Response:
-    import json
-
     body = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return Response(content=body, status_code=status, media_type="application/json")
 
@@ -63,14 +82,11 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/api/catalog/products")
-def catalog_products(
-    q: str = "",
-    page: int | None = None,
-    per_page: int | None = None,
-) -> Response:
-    query = q.strip()
-    page_number = max(1, int(page if page is not None else 1))
-    per = min(20, max(1, int(per_page if per_page is not None else 20)))
+def catalog_products(request: Request) -> Response:
+    params = request.query_params
+    query = params.get("q", "").strip()
+    page_number = max(1, php_int(params.get("page"), 1))
+    per = min(20, max(1, php_int(params.get("per_page"), 20)))
     offset = (page_number - 1) * per
 
     conn = connect_db()
@@ -93,7 +109,7 @@ def catalog_products(
 @app.get("/api/catalog/product")
 def catalog_product(request: Request) -> Response:
     raw_id = request.query_params.get("id")
-    if raw_id is None or not str(raw_id).isdigit():
+    if raw_id is None or not raw_id.isascii() or not raw_id.isdigit():
         return legacy_json({"error": "id is required"}, 400)
     product_id = int(raw_id)
 

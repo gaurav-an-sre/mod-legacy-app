@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from app import app, money, product_row
+from app import DatabaseUnavailable, app, money, product_row
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
@@ -138,3 +138,39 @@ def test_legacy_json_compact() -> None:
 
     resp = legacy_json({"page": 1, "per_page": 20, "products": []})
     assert json.loads(resp.body) == {"page": 1, "per_page": 20, "products": []}
+
+
+def _empty_conn() -> MagicMock:
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    return conn
+
+
+@patch("app.connect_db")
+def test_products_malformed_paging_uses_php_int_cast(mock_connect: MagicMock) -> None:
+    mock_connect.return_value = _empty_conn()
+    response = client.get("/api/catalog/products", params={"page": "abc", "per_page": ""})
+    assert response.status_code == 200
+    assert response.json()["page"] == 1
+    assert response.json()["per_page"] == 1
+
+    response = client.get("/api/catalog/products", params={"page": "2x", "per_page": "3.7"})
+    assert response.json()["page"] == 2
+    assert response.json()["per_page"] == 3
+
+
+def test_product_unicode_digit_id_is_rejected() -> None:
+    for bad in ("\u0661", "\u00b2"):
+        response = client.get("/api/catalog/product", params={"id": bad})
+        assert response.status_code == 400
+        assert response.json() == {"error": "id is required"}
+
+
+@patch("app.connect_db", side_effect=DatabaseUnavailable)
+def test_database_outage_returns_legacy_503(_: MagicMock) -> None:
+    response = client.get("/api/catalog/products")
+    assert response.status_code == 503
+    assert response.text == "Database unavailable"

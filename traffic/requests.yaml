@@ -17,6 +17,18 @@ catalog:
   - method: GET
     path: /api/catalog/product
     query: {}
+  - method: GET
+    path: /api/catalog/products
+    query: {q: "", page: "abc", per_page: ""}
+  - method: GET
+    path: /api/catalog/products
+    query: {q: "mug", page: "2x", per_page: "3.7"}
+  - method: GET
+    path: /api/catalog/product
+    query: {id: "١"}
+  - method: GET
+    path: /api/catalog/product
+    query: {id: "²"}
 orders:
   - method: GET
     path: /api/orders/cart
