@@ -27,6 +27,36 @@ from .validation import ContractError, parse_phase_reply
 PROMPT_DIR = Path(__file__).parent / "prompts"
 
 
+def _usage_snapshot(agent: Any) -> dict[str, float]:
+    """Billed tokens/cost from `agent.get_usage()`; server-derived, so best effort."""
+    get_usage = getattr(agent, "get_usage", None)
+    if get_usage is None:
+        return {}
+    try:
+        usage = get_usage()
+    except Exception as exc:  # noqa: BLE001 - usage is telemetry, never a gate
+        print(f"usage unavailable: {exc}", flush=True)
+        return {}
+    tokens = getattr(usage, "usage", None)
+    cost = getattr(usage, "cost", None)
+    snapshot: dict[str, float] = {
+        "input_tokens": float(getattr(tokens, "input_tokens", 0) or 0),
+        "output_tokens": float(getattr(tokens, "output_tokens", 0) or 0),
+        "cache_read_tokens": float(getattr(tokens, "cache_read_tokens", 0) or 0),
+        "total_tokens": float(getattr(tokens, "total_tokens", 0) or 0),
+        "runs": float(len(getattr(usage, "runs", ()) or ())),
+    }
+    if cost is None:
+        cost_cents = sum(
+            float(getattr(getattr(run, "cost", None), "charged_cents", 0) or 0)
+            for run in getattr(usage, "runs", ()) or ()
+        )
+    else:
+        cost_cents = float(getattr(cost, "charged_cents", 0) or 0)
+    snapshot["charged_cents"] = cost_cents
+    return snapshot
+
+
 def _is_agent_not_found(exc: BaseException) -> bool:
     try:
         import cursor_sdk
@@ -182,6 +212,7 @@ class Migration:
             mcp_servers=self._mcp_servers(),
         )
         st.agent_id = str(getattr(agent, "agent_id", ""))
+        st.runtime = getattr(self.fleet, "runtime", None)
         print(f"[{st.name}] created agent {st.agent_id}", flush=True)
         self._checkpoint(st)
         return agent
@@ -250,14 +281,20 @@ class Migration:
         )
         label = f"{st.name}/{phase}"
         print(f"[{label}] starting", flush=True)
+        record: dict[str, Any] = {}
         text, run_id = stream_run(
             agent.send(render_prompt(phase, variables)),
             label,
             slice_dir / f"{event_name or phase}.jsonl",
             agent=agent,
+            record=record,
         )
         if run_id:
             st.run_ids.append(run_id)
+        if record.get("pr_url"):
+            st.pr_url = str(record["pr_url"])
+        st.duration_ms += int(record.get("duration_ms", 0))
+        st.usage = _usage_snapshot(agent) or st.usage
         try:
             payload = parse_phase_reply(phase, st.name, text)
         except ContractError as exc:

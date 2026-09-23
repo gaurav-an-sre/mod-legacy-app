@@ -61,11 +61,8 @@ http {
 {% endfor %}
     server {
         listen 80;
-        location = /_migration {
+        location ^~ /_migration {
             proxy_pass http://console_upstream;
-        }
-        location = /_migration/ {
-            proxy_pass http://console_upstream/;
         }
 {% for slice_name, slice in slices.items() %}
 {% for route in slice.routes %}

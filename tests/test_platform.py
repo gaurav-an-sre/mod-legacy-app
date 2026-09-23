@@ -609,3 +609,131 @@ def test_register_points_slice_at_candidate_without_moving_weight(tmp_path: Path
     assert config["slices"]["orders"]["candidate"] == "candidate-orders:8000"
     assert config["slices"]["orders"]["upstream"] == "candidate_orders"
     assert config["slices"]["orders"]["weight"] == 0
+
+
+def _console_fixture(tmp_path: Path) -> None:
+    (tmp_path / "strangler" / "logs").mkdir(parents=True)
+    (tmp_path / "parity").mkdir()
+    (tmp_path / "search_eval").mkdir()
+    (tmp_path / "out" / "catalog").mkdir(parents=True)
+    (tmp_path / "strangler" / "routes.yaml").write_text(
+        "slices:\n"
+        "  catalog:\n"
+        "    weight: 50\n"
+        "    mirror: true\n"
+        "    upstream: candidate_catalog\n"
+        "    candidate: candidate-catalog:8001\n"
+        "    routes: [/api/catalog/products]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "strangler" / "logs" / "access.log").write_text(
+        "t route=catalog backend=legacy status=200 latency_ms=1\n"
+        "t route=catalog backend=candidate status=200 latency_ms=1\n"
+        "t route=catalog backend=candidate status=502 latency_ms=1\n"
+        "garbage line\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "parity" / "catalog.json").write_text(
+        json.dumps({"match_rate": 1.0, "matched": 10, "total": 10}), encoding="utf-8"
+    )
+    (tmp_path / "search_eval" / "catalog.json").write_text(
+        json.dumps(
+            {
+                "passed": True,
+                "threshold": 0.9,
+                "k": 3,
+                "queries": [{}] * 19,
+                "summary": {
+                    "legacy": {"exact": 1.0, "tone_marks": 0.0, "overall": 0.421},
+                    "enhanced": {"exact": 1.0, "tone_marks": 1.0, "overall": 1.0},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "state.json").write_text(
+        json.dumps(
+            {
+                "slices": {
+                    "catalog": {
+                        "name": "catalog",
+                        "agent_id": "bc-123",
+                        "runtime": "cloud",
+                        "branch": "cursor/extract-catalog",
+                        "pr_url": "https://github.com/x/y/pull/16",
+                        "phase": "done",
+                        "status": "done",
+                        "run_ids": ["run-1", "run-2"],
+                        "parity_attempts": 0,
+                        "usage": {"charged_cents": 109.7, "total_tokens": 1564355, "runs": 4},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "catalog" / "extract.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "out" / "catalog" / "cutover_plan.jsonl").write_text(
+        '{"type": "status", "status": "RUNNING"}\n'
+        "not json\n"
+        '{"type": "tool_call", "name": "read_file", "status": "completed", '
+        '"args": {"path": "/workspace/strangler/routes.yaml"}}\n'
+        '{"type": "tool_call", "name": "shell", "status": "completed", '
+        '"args": {"command": "make parity SLICE=catalog"}}\n'
+        '{"type": "assistant", "text": "done"}\n',
+        encoding="utf-8",
+    )
+
+
+def test_console_state_reads_real_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _console_fixture(tmp_path)
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    payload = console_main.migration_state()
+    (catalog,) = payload["slices"]
+    assert catalog["weight"] == 50
+    assert catalog["counts"] == {"legacy": 1, "candidate": 2, "errors": 1}
+    assert catalog["agent"]["pr_url"] == "https://github.com/x/y/pull/16"
+    assert catalog["agent"]["runtime"] == "cloud"
+    assert catalog["agent"]["runs"] == 2
+    assert catalog["events"]["total"] == 4
+    assert catalog["events"]["phases"]["cutover_plan"]["tool_calls"] == 2
+    assert catalog["events"]["recent"][-1] == {
+        "phase": "cutover_plan",
+        "type": "assistant",
+        "text": "done",
+    }
+    assert catalog["search_eval"]["legacy_overall"] == 0.421
+    assert catalog["search_eval"]["enhanced_overall"] == 1.0
+    assert payload["totals"]["charged_cents"] == 109.7
+    assert payload["totals"]["gate_ready"] == 1
+    assert payload["totals"]["serving"] == 1
+
+
+def test_console_html_shows_agent_search_and_cost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _console_fixture(tmp_path)
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    rendered = console_main.migration_console()
+    assert "RAMPING 50%" in rendered
+    assert "bc-123" in rendered
+    assert 'href="https://github.com/x/y/pull/16"' in rendered
+    assert "$1.10" in rendered
+    assert "42%</b> → enhanced <b class=good>100%" in rendered
+    assert "read_file×1" in rendered
+
+
+def test_console_without_orchestrator_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "strangler").mkdir()
+    (tmp_path / "strangler" / "routes.yaml").write_text(
+        "slices:\n  orders:\n    weight: 0\n    routes: [/api/orders]\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(console_main, "ROOT", tmp_path)
+    rendered = console_main.migration_console()
+    assert "No agent has been dispatched" in rendered
+    assert "not recorded" in rendered
+    assert console_main.migration_state()["totals"]["agents"] == 0

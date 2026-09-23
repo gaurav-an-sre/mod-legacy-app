@@ -46,7 +46,18 @@ def _field(message: Any, *names: str) -> Any:
     return None
 
 
-def _consume(run: Any, label: str, events_path: Path, mode: str) -> tuple[str, str, str]:
+def _git_info(result: Any) -> dict[str, Any]:
+    """Branch/PR the run pushed, if the runtime reported it (cloud runs do)."""
+    git = getattr(result, "git", None)
+    for branch in getattr(git, "branches", ()) or ():
+        if getattr(branch, "branch", "") or getattr(branch, "pr_url", ""):
+            return {"branch": branch.branch, "pr_url": branch.pr_url}
+    return {}
+
+
+def _consume(
+    run: Any, label: str, events_path: Path, mode: str, record: dict[str, Any] | None = None
+) -> tuple[str, str, str]:
     events_path.parent.mkdir(parents=True, exist_ok=True)
     assistant = ""
     with events_path.open(mode, encoding="utf-8") as events:
@@ -67,6 +78,11 @@ def _consume(run: Any, label: str, events_path: Path, mode: str) -> tuple[str, s
     final = getattr(result, "result", "") or assistant
     run_id = str(_field(result, "id", "run_id") or _field(run, "id", "run_id") or "")
     status = str(getattr(result, "status", "") or "").lower()
+    if record is not None:
+        record.update(_git_info(result))
+        duration = getattr(result, "duration_ms", 0)
+        if isinstance(duration, int) and duration:
+            record["duration_ms"] = record.get("duration_ms", 0) + duration
     print(f"[{label}] run {run_id or 'unknown'} stream ended ({status or 'no status'})", flush=True)
     return str(final), run_id, status
 
@@ -79,15 +95,19 @@ def stream_run(
     agent: Any = None,
     poll_seconds: float = REATTACH_POLL_SECONDS,
     sleep: Any = time.sleep,
+    record: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Persist the run's events to JSONL and summarize them live; return (text, run_id).
+
+    `record`, when given, is filled with what the run reported about itself
+    (`branch`, `pr_url`, `duration_ms`) so the controller can persist it.
 
     Cloud streams can drop while the agent is still working (a long docker build,
     for example). The agent is the durable object, not the socket: when the stream
     ends without a terminal result we wait until the agent accepts a new message
     (it raises `agent_busy` until then) and ask it to restate its final reply.
     """
-    text, run_id, status = _consume(run, label, events_path, "w")
+    text, run_id, status = _consume(run, label, events_path, "w", record)
     completed = status in TERMINAL or (not status and bool(text))
     if completed or agent is None:
         return text, run_id
@@ -98,5 +118,5 @@ def stream_run(
         except AgentBusyError:
             sleep(poll_seconds)
             continue
-        text, _, _ = _consume(follow_up, label, events_path, "a")
+        text, _, _ = _consume(follow_up, label, events_path, "a", record)
         return text, run_id
