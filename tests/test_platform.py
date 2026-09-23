@@ -761,7 +761,17 @@ def _shop_transport(served_by: str) -> httpx.MockTransport:
         if host == "candidate":
             return httpx.Response(
                 200,
-                json={"products": [{"id": 108, "sku": "SM-DR-001", "name": "Coke", "price": "32"}]},
+                json={
+                    "products": [
+                        {
+                            "id": 108,
+                            "sku": "SM-DR-001",
+                            "name": "โคคา-โคล่า 1.25 ลิตร",
+                            "category": "เครื่องดื่ม",
+                            "price": "32.00",
+                        }
+                    ]
+                },
             )
         if host == "facade":
             return httpx.Response(
@@ -787,6 +797,13 @@ def test_shop_page_compares_backends_and_shows_facade_origin(
     assert "weight: <b>5%" in rendered
     assert "served by legacy" in rendered
     assert "SM-DR-001" in rendered
+    assert "โคคา-โคล่า 1.25 ลิตร" in rendered
+    assert "เครื่องดื่ม" in rendered
+    assert "฿32.00" in rendered
+    assert 'class="product"' in rendered
+    assert 'class="searchbar"' in rendered
+    assert 'method="get"' in rendered
+    assert 'placeholder="ค้นหาสินค้า เช่น โค้ก, น้ำปลา, milk"' in rendered
     assert rendered.count("0 results") >= 2
 
 
